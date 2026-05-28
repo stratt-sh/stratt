@@ -369,6 +369,25 @@ func TestLintCheckAnsibleCollection(t *testing.T) {
 	}
 }
 
+// TestFormatChainAnsibleUsesAnsibleLintFix — Ansible has no separable
+// formatter, so format maps to `ansible-lint --fix` (the closest
+// analog).  Crucially, this takes priority over python+uv's
+// `ruff format` when uv is present only as a tooling layer.
+func TestFormatChainAnsibleUsesAnsibleLintFix(t *testing.T) {
+	dir := ansibleCollectionDir(t)
+	touch(t, dir, "pyproject.toml")
+	touch(t, dir, "uv.lock")
+
+	r := New(dir)
+	got := r.Resolve("format")
+	if got.Engine == nil {
+		t.Fatal("expected ansible-lint engine, got nil")
+	}
+	if got.Engine.Name() != "ansible-lint --fix" {
+		t.Errorf("got %q, want %q", got.Engine.Name(), "ansible-lint --fix")
+	}
+}
+
 func TestTestChainAnsibleCollection(t *testing.T) {
 	r := New(ansibleCollectionDir(t))
 	got := r.Resolve("test")

@@ -190,7 +190,20 @@ func (r *Resolver) languageLintEngine(fix bool) Engine {
 }
 
 // resolveFormat — see requirements.md §3 "format" chain.
+//
+// Ansible has no separable formatter — `ansible-lint --fix` is the
+// closest analog (it applies the auto-fixable subset of its rules).
+// Pointing format at it means `stratt format` does what users expect:
+// rewrite the files in-place to fix style issues.  Note that lint also
+// resolves to `ansible-lint --fix` by default, so `stratt all` runs
+// the tool twice on Ansible repos; the second pass is fast (nothing
+// left to fix) and idempotent.  This guard also takes priority over
+// python+uv, which would otherwise resolve to `ruff format` for repos
+// using uv as a tooling layer.
 func (r *Resolver) resolveFormat() Engine {
+	if r.HasStack("ansible-collection") || r.HasStack("ansible-role") {
+		return &execEngine{tool: "ansible-lint", argv: []string{"--fix"}}
+	}
 	switch {
 	case r.HasStack("python+uv"):
 		return &execEngine{tool: "uv", argv: append([]string{"run"}, append(uvAllFlags, "ruff", "format")...)}
