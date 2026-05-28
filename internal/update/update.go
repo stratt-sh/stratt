@@ -40,7 +40,7 @@ type Options struct {
 	SkipVerification bool
 
 	// Policy is the attestation trust anchor.  Defaults to DefaultPolicy
-	// (pinned to zebpalmer/stratt).
+	// (pinned to stratt-sh/stratt).
 	Policy AttestationPolicy
 }
 

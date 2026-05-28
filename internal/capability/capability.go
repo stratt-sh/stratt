@@ -11,7 +11,7 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/zebpalmer/stratt/internal/detect"
+	"github.com/stratt-sh/stratt/internal/detect"
 )
 
 // Engine is a concrete backend for one universal command in one repo.

@@ -22,7 +22,7 @@ import (
 // certificate was issued for a workflow path under SubjectRepository.
 type AttestationPolicy struct {
 	// SubjectRepository is the GitHub repo that owns the trusted release
-	// workflow, e.g. "zebpalmer/stratt".
+	// workflow, e.g. "stratt-sh/stratt".
 	SubjectRepository string
 
 	// WorkflowRef is the Git ref of the workflow file used to gate
@@ -35,7 +35,7 @@ type AttestationPolicy struct {
 // pipeline.  Other instances can build their own policy at compile time
 // if they're forking stratt for an internal-only deployment.
 var DefaultPolicy = AttestationPolicy{
-	SubjectRepository: "zebpalmer/stratt",
+	SubjectRepository: "stratt-sh/stratt",
 }
 
 // ErrAttestationMissing — no attestation could be found for an artifact.

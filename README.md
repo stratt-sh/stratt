@@ -15,7 +15,7 @@ brew tap stratt-sh/tap
 brew install stratt
 ```
 
-Or grab a binary from the [releases page](https://github.com/zebpalmer/stratt/releases).
+Or grab a binary from the [releases page](https://github.com/stratt-sh/stratt/releases).
 
 ### macOS first-run note
 

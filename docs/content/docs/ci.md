@@ -96,7 +96,7 @@ Bootstrapping trust in a binary requires an *independent* verifier — asking th
 On GitHub-hosted runners `gh` is pre-installed, so attestation verification happens automatically. The script will:
 
 1. SHA256 the archive against `checksums.txt`
-2. Run `gh attestation verify <archive> --repo zebpalmer/stratt`
+2. Run `gh attestation verify <archive> --repo stratt-sh/stratt`
 3. Only extract + install if both pass
 
 To make a missing `gh` a hard failure instead of a soft skip:

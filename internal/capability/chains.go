@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zebpalmer/stratt/internal/detect"
+	"github.com/stratt-sh/stratt/internal/detect"
 )
 
 // uvAllFlags are the flags stratt passes to `uv run` and `uv sync` in

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/zebpalmer/stratt/internal/capability"
-	"github.com/zebpalmer/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/config"
 )
 
 // Source describes where a task came from.  Used by `stratt doctor` and

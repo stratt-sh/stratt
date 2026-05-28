@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zebpalmer/stratt/internal/capability"
-	"github.com/zebpalmer/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/config"
 )
 
 func touch(t *testing.T, root, rel string) {

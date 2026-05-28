@@ -8,9 +8,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/capability"
-	"github.com/zebpalmer/stratt/internal/config"
-	"github.com/zebpalmer/stratt/internal/runner"
+	"github.com/stratt-sh/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/runner"
 )
 
 // renderCommandRow returns the rendered "→ ..." cell and the trailing

@@ -9,7 +9,7 @@ package main
 import (
 	"os"
 
-	"github.com/zebpalmer/stratt/internal/cli"
+	"github.com/stratt-sh/stratt/internal/cli"
 )
 
 // These are injected at link time by GoReleaser.

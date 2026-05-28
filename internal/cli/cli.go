@@ -7,10 +7,10 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/config"
-	"github.com/zebpalmer/stratt/internal/ui"
-	"github.com/zebpalmer/stratt/internal/update"
-	"github.com/zebpalmer/stratt/internal/version"
+	"github.com/stratt-sh/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/ui"
+	"github.com/stratt-sh/stratt/internal/update"
+	"github.com/stratt-sh/stratt/internal/version"
 )
 
 // BuildInfo carries version metadata injected at link time.

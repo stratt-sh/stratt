@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zebpalmer/stratt/internal/bump"
+	"github.com/stratt-sh/stratt/internal/bump"
 )
 
 func mustRun(t *testing.T, dir, name string, args ...string) {

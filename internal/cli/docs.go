@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/detect"
+	"github.com/stratt-sh/stratt/internal/detect"
 )
 
 // newDocsCmd implements `stratt docs build` and `stratt docs serve`,

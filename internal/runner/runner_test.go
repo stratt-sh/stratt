@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zebpalmer/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/capability"
 )
 
 // fakeEngine is a controllable Engine for testing the runner.

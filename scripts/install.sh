@@ -13,7 +13,7 @@
 #   STRATT_INSTALL_DIR
 #                    install directory.  Defaults to $HOME/.local/bin
 #                    (or /usr/local/bin when running as root).
-#   STRATT_REPO      override the upstream repo (default zebpalmer/stratt).
+#   STRATT_REPO      override the upstream repo (default stratt-sh/stratt).
 #
 # Verifies the SHA256 checksum against the release's checksums.txt.
 # If the `gh` CLI is available, additionally verifies the Sigstore
@@ -23,7 +23,7 @@
 
 set -eu
 
-REPO="${STRATT_REPO:-zebpalmer/stratt}"
+REPO="${STRATT_REPO:-stratt-sh/stratt}"
 VERSION="${STRATT_VERSION:-}"
 INSTALL_DIR="${STRATT_INSTALL_DIR:-}"
 SKIP_ATTESTATION="${STRATT_SKIP_ATTESTATION:-}"

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zebpalmer/stratt/internal/kustomize"
+	"github.com/stratt-sh/stratt/internal/kustomize"
 )
 
 func mustRunInDir(t *testing.T, dir, name string, args ...string) {

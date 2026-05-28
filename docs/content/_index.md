@@ -47,7 +47,7 @@ brew install stratt
 ```
 {{< /tab >}}
 {{< tab name="Direct download" >}}
-Grab a binary for your platform from the [releases page](https://github.com/zebpalmer/stratt/releases),
+Grab a binary for your platform from the [releases page](https://github.com/stratt-sh/stratt/releases),
 extract it, and put `stratt` somewhere on your `$PATH`.
 
 On macOS first-run you may need to clear Gatekeeper quarantine:
@@ -69,5 +69,5 @@ stratt doctor
 
 {{< cards >}}
 {{< card link="/docs/quick-start" title="Quick Start" subtitle="Five minutes from install to first release" >}}
-{{< card link="https://github.com/zebpalmer/stratt" title="GitHub" subtitle="Source, releases, issues" >}}
+{{< card link="https://github.com/stratt-sh/stratt" title="GitHub" subtitle="Source, releases, issues" >}}
 {{< /cards >}}

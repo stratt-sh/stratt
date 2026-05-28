@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zebpalmer/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/capability"
 )
 
 // withCwd changes into dir for the test and restores the original cwd

@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/runner"
+	"github.com/stratt-sh/stratt/internal/runner"
 )
 
 // newLintCmd implements `stratt lint`.  Defaults to the auto-fixing

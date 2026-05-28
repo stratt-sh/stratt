@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/zebpalmer/stratt/internal/detect"
+	"github.com/stratt-sh/stratt/internal/detect"
 )
 
 // fakeEngine is a minimal in-memory Engine for runner / resolver tests.

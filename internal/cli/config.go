@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/config"
 )
 
 // newConfigCmd wires `stratt config` and its subcommands:

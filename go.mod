@@ -1,4 +1,4 @@
-module github.com/zebpalmer/stratt
+module github.com/stratt-sh/stratt
 
 go 1.25.5
 

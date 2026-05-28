@@ -20,7 +20,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/zebpalmer/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/capability"
 )
 
 // ErrNoEngine is returned from Run when the command has no resolved

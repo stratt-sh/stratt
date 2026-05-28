@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/bump"
-	"github.com/zebpalmer/stratt/internal/config"
-	"github.com/zebpalmer/stratt/internal/release"
-	"github.com/zebpalmer/stratt/internal/runner"
+	"github.com/stratt-sh/stratt/internal/bump"
+	"github.com/stratt-sh/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/release"
+	"github.com/stratt-sh/stratt/internal/runner"
 )
 
 // newReleaseCmd wires the `stratt release` flow.  This is a custom-shape

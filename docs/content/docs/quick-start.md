@@ -20,7 +20,7 @@ If you don't have Homebrew, use the install script (POSIX shells, macOS + Linux)
 curl -fsSL https://stratt.sh/install.sh | sh
 ```
 
-Or grab a binary directly from the [releases page](https://github.com/zebpalmer/stratt/releases). For CI/CD usage see [Using stratt in CI](/docs/ci).
+Or grab a binary directly from the [releases page](https://github.com/stratt-sh/stratt/releases). For CI/CD usage see [Using stratt in CI](/docs/ci).
 
 ## 2. See what stratt sees
 
@@ -166,7 +166,7 @@ stratt self update    # download, verify, install
 
 On Homebrew installs, `stratt self update` checks for an update and offers to run `brew upgrade stratt` for you. Pass `--yes` to skip the prompt; `--ci` to print the command without prompting.
 
-Updates are verified against Sigstore artifact attestations. The trust anchor is compiled into stratt as `zebpalmer/stratt` + the release workflow path — even a compromised GitHub Actions secret can't ship an unsigned binary that stratt accepts.
+Updates are verified against Sigstore artifact attestations. The trust anchor is compiled into stratt as `stratt-sh/stratt` + the release workflow path — even a compromised GitHub Actions secret can't ship an unsigned binary that stratt accepts.
 
 ---
 
@@ -176,4 +176,4 @@ Updates are verified against Sigstore artifact attestations. The trust anchor is
 - `stratt help <command>` shows per-command help.
 - `stratt doctor` answers "what would stratt do here?" before you commit.
 
-For the full configuration reference, browse [`stratt.toml` on the repo](https://github.com/zebpalmer/stratt/blob/main/stratt.toml) — stratt dogfoods its own config there.
+For the full configuration reference, browse [`stratt.toml` on the repo](https://github.com/stratt-sh/stratt/blob/main/stratt.toml) — stratt dogfoods its own config there.

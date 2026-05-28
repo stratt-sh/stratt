@@ -22,8 +22,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/zebpalmer/stratt/internal/bump"
-	"github.com/zebpalmer/stratt/internal/git"
+	"github.com/stratt-sh/stratt/internal/bump"
+	"github.com/stratt-sh/stratt/internal/git"
 )
 
 // Options drives a single release.  Zero-value Options is *not* safe —

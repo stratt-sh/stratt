@@ -47,7 +47,7 @@ displayPoweredBy = false
 
 [params.editURL]
 enable = true
-base = "https://github.com/zebpalmer/stratt/edit/main/docs/content"
+base = "https://github.com/stratt-sh/stratt/edit/main/docs/content"
 
 # Hide hextra's default "search" placeholder — we have nothing to search
 # yet and the empty UI feels worse than no UI.
@@ -67,5 +67,5 @@ weight = 1
 [[menu.main]]
 identifier = "github"
 name = "GitHub"
-url = "https://github.com/zebpalmer/stratt"
+url = "https://github.com/stratt-sh/stratt"
 weight = 2

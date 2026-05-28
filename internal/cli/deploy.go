@@ -11,9 +11,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/config"
-	"github.com/zebpalmer/stratt/internal/git"
-	"github.com/zebpalmer/stratt/internal/kustomize"
+	"github.com/stratt-sh/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/git"
+	"github.com/stratt-sh/stratt/internal/kustomize"
 	yaml "gopkg.in/yaml.v3"
 )
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/update"
+	"github.com/stratt-sh/stratt/internal/update"
 )
 
 // newSelfCmd wires the `stratt self` subcommand group:
@@ -26,7 +26,7 @@ func newSelfCmd(b BuildInfo) *cobra.Command {
 
 // strattUpstreamRepo is compiled into the binary as the trust pin
 // (R4.4).  Forks should override this in cmd/stratt/main.go.
-const strattUpstreamRepo = "zebpalmer/stratt"
+const strattUpstreamRepo = "stratt-sh/stratt"
 
 // strattBrewFormula is the fully-qualified Homebrew formula name.
 // Used by the update notifier and by `stratt self update` when the

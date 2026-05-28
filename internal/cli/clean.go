@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/zebpalmer/stratt/internal/detect"
+	"github.com/stratt-sh/stratt/internal/detect"
 )
 
 // newCleanCmd implements `stratt clean`: walks the detected stacks
