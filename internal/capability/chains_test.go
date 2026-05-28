@@ -3,6 +3,7 @@ package capability
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -465,6 +466,117 @@ func TestSubmoduleStatusNoGitmodules(t *testing.T) {
 	declared, uninit := New(t.TempDir()).SubmoduleStatus()
 	if declared != 0 || uninit != 0 {
 		t.Errorf("got (%d, %d), want (0, 0)", declared, uninit)
+	}
+}
+
+// ansiblePlaybookDir creates a minimal playbook-shape repo:
+// ansible.cfg + requirements.yml.
+func ansiblePlaybookDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	touch(t, dir, "ansible.cfg")
+	writeFile(t, dir, "requirements.yml", "collections:\n- name: community.general\n  version: 8.0.0\n")
+	return dir
+}
+
+func TestSetupChainAnsiblePlaybook(t *testing.T) {
+	r := New(ansiblePlaybookDir(t))
+	got := r.Resolve("setup")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	want := "ansible-galaxy install -r requirements.yml"
+	if got.Engine.Name() != want {
+		t.Errorf("got %q, want %q", got.Engine.Name(), want)
+	}
+}
+
+func TestSyncChainAnsiblePlaybook(t *testing.T) {
+	r := New(ansiblePlaybookDir(t))
+	got := r.Resolve("sync")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	if got.Engine.Name() != "ansible-galaxy install -r requirements.yml --force" {
+		t.Errorf("got %q", got.Engine.Name())
+	}
+}
+
+func TestLintChainAnsiblePlaybook(t *testing.T) {
+	r := New(ansiblePlaybookDir(t))
+	got := r.Resolve("lint")
+	if got.Engine == nil || got.Engine.Name() != "ansible-lint --fix" {
+		t.Errorf("got %v", got.Engine)
+	}
+}
+
+func TestFormatChainAnsiblePlaybook(t *testing.T) {
+	r := New(ansiblePlaybookDir(t))
+	got := r.Resolve("format")
+	if got.Engine == nil || got.Engine.Name() != "ansible-lint --fix" {
+		t.Errorf("got %v", got.Engine)
+	}
+}
+
+// TestAllDedupsAnsibleFormatLint — `all` drops `format` from execution
+// when lint would already run the same ansible-lint --fix pass.
+// Without this, `stratt all` runs ansible-lint twice in a row.
+//
+// Crucially the *display* still mentions format (rendered as
+// `format(via lint)`) so users see the formatting step exists
+// conceptually — it's just folded into lint to avoid redundant work.
+func TestAllDedupsAnsibleFormatLint(t *testing.T) {
+	r := New(ansiblePlaybookDir(t))
+	all := r.Resolve("all").Engine
+	if all == nil {
+		t.Fatal("expected composite, got nil")
+	}
+	comp, ok := all.(CompositeEngine)
+	if !ok {
+		t.Fatalf("expected CompositeEngine, got %T", all)
+	}
+
+	// Execution members: format MUST be absent.
+	for _, m := range comp.CompositeMembers() {
+		if m == "format" {
+			t.Errorf("format should be deduped out of execution; members=%v", comp.CompositeMembers())
+		}
+	}
+
+	// Display: must still mention format so the user's mental model of
+	// "all runs everything" is preserved.
+	if !strings.Contains(all.Name(), "format") {
+		t.Errorf("display should still mention format; got %q", all.Name())
+	}
+	if !strings.Contains(all.Name(), "via lint") {
+		t.Errorf("display should annotate that format is folded into lint; got %q", all.Name())
+	}
+}
+
+// TestAllKeepsFormatWhenLintIsDifferentTool — outside the Ansible case
+// the dedup should NOT fire (e.g. python+uv where format=ruff format
+// and lint=ruff check use the same binary but distinct subcommands;
+// see lintSubsumes for the "same tool" rule — uv is the tool in both,
+// so dedup intentionally fires for that case too).
+//
+// To exercise the *negative* case (different tools), use a Go repo:
+// format=gofmt, lint=go vet.  Different tools → format stays.
+func TestAllKeepsFormatWhenLintIsDifferentTool(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	all := New(dir).Resolve("all").Engine
+	if all == nil {
+		t.Fatal("expected composite, got nil")
+	}
+	comp := all.(CompositeEngine)
+	saw := false
+	for _, m := range comp.CompositeMembers() {
+		if m == "format" {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Errorf("format should appear in all for Go repo; got %v", comp.CompositeMembers())
 	}
 }
 

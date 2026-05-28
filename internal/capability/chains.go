@@ -51,7 +51,7 @@ func (r *Resolver) resolveBuild() Engine {
 // resolveTest — see requirements.md §3 "test" chain.
 func (r *Resolver) resolveTest() Engine {
 	switch {
-	case r.HasStack("ansible-collection") || r.HasStack("ansible-role"):
+	case r.hasAnsibleStack():
 		// `ansible-lint --strict` is the closest universal default for
 		// Ansible "test" — sanity tests (`ansible-test sanity`) require
 		// the collection to be installed in a specific path layout and
@@ -161,7 +161,7 @@ func (r *Resolver) SubmoduleStatus() (declared, uninitialized int) {
 // duplicating the switch.
 func (r *Resolver) languageLintEngine(fix bool) Engine {
 	switch {
-	case r.HasStack("ansible-collection") || r.HasStack("ansible-role"):
+	case r.hasAnsibleStack():
 		argv := []string{}
 		if fix {
 			argv = append(argv, "--fix")
@@ -201,7 +201,7 @@ func (r *Resolver) languageLintEngine(fix bool) Engine {
 // python+uv, which would otherwise resolve to `ruff format` for repos
 // using uv as a tooling layer.
 func (r *Resolver) resolveFormat() Engine {
-	if r.HasStack("ansible-collection") || r.HasStack("ansible-role") {
+	if r.hasAnsibleStack() {
 		return &execEngine{tool: "ansible-lint", argv: []string{"--fix"}}
 	}
 	switch {
@@ -236,6 +236,14 @@ func (r *Resolver) resolveSetup() Engine {
 		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
 		inner = &execEngine{tool: "composer", argv: []string{"install"}}
+	case r.HasStack("ansible-playbook") && r.fileExists("requirements.yml", "requirements.yaml"):
+		// Playbook/inventory repos: pull collection + role deps so the
+		// playbooks can actually run.  Collections take precedence over
+		// roles; both end up under the resolved collections path.
+		inner = &execEngine{
+			tool: "ansible-galaxy",
+			argv: []string{"install", "-r", "requirements.yml"},
+		}
 	}
 	return r.composeWithSubmoduleInit(inner)
 }
@@ -272,6 +280,13 @@ func (r *Resolver) resolveSync() Engine {
 		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
 		inner = &execEngine{tool: "composer", argv: []string{"install", "--no-dev"}}
+	case r.HasStack("ansible-playbook") && r.fileExists("requirements.yml", "requirements.yaml"):
+		// `--force` so a re-sync picks up pin moves in requirements.yml
+		// instead of silently keeping the previously-installed version.
+		inner = &execEngine{
+			tool: "ansible-galaxy",
+			argv: []string{"install", "-r", "requirements.yml", "--force"},
+		}
 	}
 	return r.composeWithSubmoduleInit(inner)
 }
@@ -414,34 +429,97 @@ func (r *Resolver) resolveStyle() Engine {
 // included only if its constituent engine resolves).  `sync` runs
 // first so the env is current before tests — implicitly covers the
 // "uv.lock consistent with pyproject.toml" check.
+//
+// Format/lint dedup: when both resolve to the same root tool — most
+// notably Ansible, where `format` and `lint` both invoke
+// `ansible-lint --fix` — `format` is dropped from the execution list
+// so the tool runs once.  The displayed composition still mentions
+// `format` (rendered as `format(via lint)`) so users see that the
+// formatting step exists conceptually — it's just folded into lint
+// to avoid redundant work.  `stratt format` and `stratt lint` remain
+// individually invocable.
 func (r *Resolver) resolveAll() Engine {
-	var members []string
+	var members []string      // what actually runs
+	var displayParts []string // what's shown to the user (may include subsumed steps)
+
+	add := func(name string) {
+		members = append(members, name)
+		displayParts = append(displayParts, name)
+	}
+	addDisplayOnly := func(label string) {
+		displayParts = append(displayParts, label)
+	}
+
 	if r.resolveSync() != nil {
-		members = append(members, "sync")
+		add("sync")
 	}
-	if r.resolveFormat() != nil {
-		members = append(members, "format")
+	format := r.resolveFormat()
+	lint := r.resolveLint()
+	switch {
+	case format != nil && lint != nil && lintSubsumes(lint, format):
+		addDisplayOnly("format(via lint)")
+	case format != nil:
+		add("format")
 	}
-	if r.resolveLint() != nil {
-		members = append(members, "lint")
+	if lint != nil {
+		add("lint")
 	}
 	if r.resolveTest() != nil {
-		members = append(members, "test")
+		add("test")
 	}
 	if r.resolveDocs() != nil {
-		members = append(members, "docs")
+		add("docs")
 	}
 	if len(members) == 0 {
 		return nil
 	}
-	display := ""
-	for i, m := range members {
-		if i > 0 {
-			display += " + "
-		}
-		display += m
+	return &compositeEngine{
+		display: strings.Join(displayParts, " + "),
+		members: members,
 	}
-	return &compositeEngine{display: display, members: members}
+}
+
+// lintSubsumes reports whether the lint engine already invokes the
+// same underlying tool that format would.  Used by resolveAll to drop
+// `format` when running `lint` would redundantly do the same fixing
+// pass — the canonical case is Ansible, where both resolve to
+// `ansible-lint --fix` (lint also composes actionlint on top).
+//
+// Comparison is by Tool() for single-tool engines; multiEngines are
+// checked against each of their sub-engines via MultiTooler.  This
+// matches "same tool, same fixing intent" without depending on flag
+// string equality (which is brittle).
+func lintSubsumes(lint, format Engine) bool {
+	if lint == nil || format == nil {
+		return false
+	}
+	ft, ok := format.(Tooler)
+	if !ok || ft.Tool() == "" {
+		return false
+	}
+	formatTool := ft.Tool()
+	if mt, ok := lint.(MultiTooler); ok {
+		for _, t := range mt.Tools() {
+			if t == formatTool {
+				return true
+			}
+		}
+		return false
+	}
+	if lt, ok := lint.(Tooler); ok {
+		return lt.Tool() == formatTool
+	}
+	return false
+}
+
+// hasAnsibleStack reports whether any of the Ansible stacks (collection,
+// role, playbook) are detected.  Used by the lint / format / test /
+// clean chains since the Ansible tooling (ansible-lint, ansible-galaxy)
+// is shared across all three shapes.
+func (r *Resolver) hasAnsibleStack() bool {
+	return r.HasStack("ansible-collection") ||
+		r.HasStack("ansible-role") ||
+		r.HasStack("ansible-playbook")
 }
 
 // fileExists reports whether any of the given filenames exist in the repo root.

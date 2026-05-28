@@ -213,6 +213,29 @@ func TestDetectAnsibleRole(t *testing.T) {
 	}
 }
 
+func TestDetectAnsiblePlaybook(t *testing.T) {
+	dir := t.TempDir()
+	if got := detectAnsiblePlaybook(dir); got.Name != "" {
+		t.Fatalf("empty repo: got %+v", got)
+	}
+	touch(t, dir, "ansible.cfg")
+	if got := detectAnsiblePlaybook(dir); got.Name != "ansible-playbook" {
+		t.Fatalf("ansible.cfg present: got %+v", got)
+	}
+}
+
+// TestDetectAnsiblePlaybookSkippedInsideCollection — a collection that
+// happens to ship ansible.cfg for local testing should still detect as
+// a collection only.
+func TestDetectAnsiblePlaybookSkippedInsideCollection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", galaxyYML)
+	touch(t, dir, "ansible.cfg")
+	if got := detectAnsiblePlaybook(dir); got.Name != "" {
+		t.Fatalf("playbook detector should defer to collection: got %+v", got)
+	}
+}
+
 // TestDetectAnsibleRoleSkippedInsideCollection — when galaxy.yml is
 // present the role inside the collection should not be reported as a
 // standalone role stack.

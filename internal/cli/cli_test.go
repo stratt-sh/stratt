@@ -196,8 +196,11 @@ func TestSelfBypassesBrokenProjectConfig(t *testing.T) {
 	}
 	withCwd(t, dir)
 
+	// `self --help` exercises the same PersistentPreRunE exemption
+	// path as `self check` / `self update` without hitting the
+	// network (the live `self check` calls the GitHub releases API,
+	// which is rate-limited and flakes CI).
 	for _, args := range [][]string{
-		{"stratt", "self", "check"},
 		{"stratt", "self", "--help"},
 	} {
 		origStderr := os.Stderr

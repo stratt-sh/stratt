@@ -50,7 +50,21 @@ var universalSpecs = []universalSpec{
 	{name: "sync", short: "Sync dependencies from the project's lockfile", aliases: []string{"install"}},
 	{name: "lock", short: "Update the project's lockfile from its manifest"},
 	{name: "upgrade", short: "Upgrade all dependencies to their latest compatible versions"},
-	{name: "all", short: "Run the full verification suite (everything detected)"},
+	{
+		name:  "all",
+		short: "Run the full verification suite (everything detected)",
+		long: `Run the full verification suite for the detected stacks.
+
+Conceptual steps, in order: sync, format, lint, test, docs.  Each step
+is included only when an engine resolves for it in the detected stacks
+— check ` + "`stratt doctor`" + ` to see exactly what will run.
+
+When two steps would invoke the same tool with the same fixing intent
+(e.g. Ansible repos where format and lint both run ` + "`ansible-lint --fix`" + `),
+the overlapping step is folded into the other so the tool runs once.
+The displayed composition reflects this with a "format(via lint)"
+notation, but the conceptual step is still present.`,
+	},
 }
 
 // newUniversalCmd returns a Cobra command that resolves and runs the

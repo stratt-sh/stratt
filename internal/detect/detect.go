@@ -44,6 +44,7 @@ var detectors = []detector{
 	detectGitHubActions,
 	detectAnsibleCollection,
 	detectAnsibleRole,
+	detectAnsiblePlaybook,
 }
 
 // Scan runs all detectors against root and returns the report.
@@ -230,6 +231,23 @@ func detectAnsibleRole(root string) Stack {
 			hasAnyFile(role, "meta/main.yml", "meta/main.yaml") {
 			return Stack{Name: "ansible-role", Signal: "roles/*/tasks/main.yml"}
 		}
+	}
+	return Stack{}
+}
+
+// detectAnsiblePlaybook matches a playbook / inventory repo — the
+// shape used to *run* Ansible against a fleet rather than to package
+// a collection or role.  Keyed on ansible.cfg at the repo root, which
+// is the near-unique signal for "this repo is driven by ansible."
+// Skipped when galaxy.yml is present (collection wins) so a collection
+// that happens to ship an ansible.cfg for local testing doesn't pick
+// up the playbook chains too.
+func detectAnsiblePlaybook(root string) Stack {
+	if exists(filepath.Join(root, "galaxy.yml")) {
+		return Stack{}
+	}
+	if exists(filepath.Join(root, "ansible.cfg")) {
+		return Stack{Name: "ansible-playbook", Signal: "ansible.cfg"}
 	}
 	return Stack{}
 }

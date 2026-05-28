@@ -28,6 +28,7 @@ Per stack:
                        ` + "`uv cache clean`" + ` to drop the global uv download cache
   ansible-collection → dist/, .ansible/, collections/
   ansible-role       → .ansible/
+  ansible-playbook   → .ansible/, collections/
   mkdocs             → site/
   sphinx             → docs/_build/, docs/_autosummary/
   hugo               → <hugo source>/public/
@@ -84,6 +85,11 @@ After cleaning a python+uv repo, run ` + "`stratt setup`" + ` to rebuild .venv.`
 					)
 				case "ansible-role":
 					targets = append(targets, filepath.Join(cwd, ".ansible"))
+				case "ansible-playbook":
+					targets = append(targets,
+						filepath.Join(cwd, ".ansible"),
+						filepath.Join(cwd, "collections"),
+					)
 				}
 			}
 			for _, p := range targets {
