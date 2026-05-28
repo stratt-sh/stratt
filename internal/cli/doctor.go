@@ -111,6 +111,15 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 				fmt.Fprintln(out, "      install it (`brew install actionlint`) and stratt will lint them as part of `stratt lint`.")
 			}
 
+			// Submodule advisory: catches the "fresh clone, theme missing"
+			// failure mode (e.g. Hugo themes shipped as a git submodule)
+			// before it manifests as a cryptic build error.
+			if declared, uninit := resolver.SubmoduleStatus(); uninit > 0 {
+				fmt.Fprintln(out)
+				fmt.Fprintf(out, "Note: %d of %d git submodule(s) are not checked out —\n", uninit, declared)
+				fmt.Fprintln(out, "      run `stratt setup` (or `git submodule update --init --recursive`).")
+			}
+
 			return nil
 		},
 	}

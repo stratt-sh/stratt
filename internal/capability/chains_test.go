@@ -377,6 +377,78 @@ func TestTestChainAnsibleCollection(t *testing.T) {
 	}
 }
 
+// TestSetupComposesSubmoduleInit — when .gitmodules is present, setup
+// prepends `git submodule update --init --recursive` to the language
+// step via a multiEngine.
+func TestSetupComposesSubmoduleInit(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	touch(t, dir, ".gitmodules")
+
+	got := New(dir).Resolve("setup")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	want := "git submodule update --init --recursive + go mod download"
+	if got.Engine.Name() != want {
+		t.Errorf("got %q, want %q", got.Engine.Name(), want)
+	}
+}
+
+// TestSetupWithoutSubmodulesUnchanged — no .gitmodules means no
+// submodule step gets composed in.
+func TestSetupWithoutSubmodulesUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+
+	got := New(dir).Resolve("setup")
+	if got.Engine == nil || got.Engine.Name() != "go mod download" {
+		t.Errorf("got %v", got.Engine)
+	}
+}
+
+// TestSetupSubmodulesOnly — .gitmodules without a recognized language
+// stack still resolves to the submodule init step alone, so a "docs
+// repo with theme submodule" gets `stratt setup` support.
+func TestSetupSubmodulesOnly(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, ".gitmodules")
+
+	got := New(dir).Resolve("setup")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	if got.Engine.Name() != "git submodule update --init --recursive" {
+		t.Errorf("got %q", got.Engine.Name())
+	}
+}
+
+// TestSyncComposesSubmoduleInit — sync also composes in submodule
+// update so collaborators picking up a moved pin get it on `sync`.
+func TestSyncComposesSubmoduleInit(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	touch(t, dir, ".gitmodules")
+
+	got := New(dir).Resolve("sync")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	want := "git submodule update --init --recursive + go mod download"
+	if got.Engine.Name() != want {
+		t.Errorf("got %q, want %q", got.Engine.Name(), want)
+	}
+}
+
+// TestSubmoduleStatusNoGitmodules — fast path: no .gitmodules means
+// (0, 0) without shelling out.
+func TestSubmoduleStatusNoGitmodules(t *testing.T) {
+	declared, uninit := New(t.TempDir()).SubmoduleStatus()
+	if declared != 0 || uninit != 0 {
+		t.Errorf("got (%d, %d), want (0, 0)", declared, uninit)
+	}
+}
+
 func TestReleaseChainAnsibleCollection(t *testing.T) {
 	r := New(ansibleCollectionDir(t))
 	got := r.Resolve("release")

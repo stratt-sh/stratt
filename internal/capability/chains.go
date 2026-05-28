@@ -6,6 +6,7 @@ package capability
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -122,6 +123,38 @@ func (r *Resolver) ActionlintAvailable() (workflowsExist, toolAvailable bool) {
 	return r.hasGitHubWorkflows(), available("actionlint")
 }
 
+// SubmoduleStatus reports submodule state for `stratt doctor`.
+// `declared` is the number of submodules in .gitmodules; `uninitialized`
+// is how many of those haven't been checked out (`git submodule status`
+// line beginning with `-`).  When .gitmodules is absent or git is not
+// on PATH, both return zero.
+//
+// Doctor surfaces a one-line advisory when uninitialized > 0, pointing
+// users at `stratt setup` (which now composes the init step in).
+func (r *Resolver) SubmoduleStatus() (declared, uninitialized int) {
+	if !r.fileExists(".gitmodules") {
+		return 0, 0
+	}
+	if !available("git") {
+		return 0, 0
+	}
+	cmd := exec.Command("git", "-C", r.root, "submodule", "status")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			continue
+		}
+		declared++
+		if strings.HasPrefix(line, "-") {
+			uninitialized++
+		}
+	}
+	return declared, uninitialized
+}
+
 // languageLintEngine returns the per-language lint engine — the
 // historical first-match-wins chain.  Split out so lintEngine can
 // compose it with non-language linters (actionlint) without
@@ -172,32 +205,62 @@ func (r *Resolver) resolveFormat() Engine {
 // failure (`;` not `&&`) so brew-installed uv (which can't self-update)
 // keeps working — the user sees a one-line "use brew upgrade uv" note
 // but the sync still runs.
+//
+// When .gitmodules is present, `git submodule update --init --recursive`
+// is composed in ahead of the language step.  Setup is the "make this
+// repo workable from a fresh clone" command; missing submodules cause
+// late, cryptic failures (e.g. a Hugo theme submodule that leaves
+// shortcodes undefined) so we pull them eagerly.
 func (r *Resolver) resolveSetup() Engine {
+	var inner Engine
 	switch {
 	case r.HasStack("python+uv"):
-		return &shellEngine{
+		inner = &shellEngine{
 			line:    "uv self update; uv sync --all-extras --all-groups",
 			display: "uv self update (best-effort) && uv sync --all-extras --all-groups",
 		}
 	case r.HasStack("go"):
-		return &execEngine{tool: "go", argv: []string{"mod", "download"}}
+		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
-		return &execEngine{tool: "composer", argv: []string{"install"}}
+		inner = &execEngine{tool: "composer", argv: []string{"install"}}
 	}
-	return nil
+	return r.composeWithSubmoduleInit(inner)
 }
 
-// resolveSync — sync deps from lockfile.
+// composeWithSubmoduleInit prepends a `git submodule update --init
+// --recursive` step to inner when the repo declares submodules.
+// Returns inner unchanged when no .gitmodules is present, or when
+// inner is nil (no language step to compose with — submodule init
+// alone is enough to constitute setup).
+func (r *Resolver) composeWithSubmoduleInit(inner Engine) Engine {
+	if !r.fileExists(".gitmodules") {
+		return inner
+	}
+	sub := &execEngine{
+		tool:    "git",
+		argv:    []string{"submodule", "update", "--init", "--recursive"},
+		display: "git submodule update --init --recursive",
+	}
+	if inner == nil {
+		return sub
+	}
+	return &multiEngine{engines: []Engine{sub, inner}}
+}
+
+// resolveSync — sync deps from lockfile.  Composes with submodule
+// init/update (--init --recursive is idempotent: a no-op when
+// submodules are already initialized; pulls drifted pins otherwise).
 func (r *Resolver) resolveSync() Engine {
+	var inner Engine
 	switch {
 	case r.HasStack("python+uv"):
-		return &execEngine{tool: "uv", argv: append([]string{"sync"}, uvAllFlags...)}
+		inner = &execEngine{tool: "uv", argv: append([]string{"sync"}, uvAllFlags...)}
 	case r.HasStack("go"):
-		return &execEngine{tool: "go", argv: []string{"mod", "download"}}
+		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
-		return &execEngine{tool: "composer", argv: []string{"install", "--no-dev"}}
+		inner = &execEngine{tool: "composer", argv: []string{"install", "--no-dev"}}
 	}
-	return nil
+	return r.composeWithSubmoduleInit(inner)
 }
 
 // resolveLock — update lockfile from manifest.
