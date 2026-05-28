@@ -53,11 +53,28 @@ changelog:
 
 # Homebrew tap publishing.
 #
-# Requires:
-#   - github.com/zebpalmer/homebrew-tap to exist
-#   - HOMEBREW_TAP_TOKEN secret on this repo (fine-grained PAT with
-#     Contents: read+write on zebpalmer/homebrew-tap)
+# Pushes to two taps during the transition period:
+#   - stratt-sh/homebrew-tap  (new canonical tap)
+#   - zebpalmer/homebrew-tap  (legacy, shows deprecation caveats — drop this
+#                              entry once existing users have migrated)
+#
+# Secrets required on this repo:
+#   - HOMEBREW_TAP_TOKEN        fine-grained PAT, Contents r/w on zebpalmer/homebrew-tap
+#   - HOMEBREW_TAP_TOKEN_STRATTSH  fine-grained PAT, Contents r/w on stratt-sh/homebrew-tap
 brews:
+  - name: stratt
+    repository:
+      owner: stratt-sh
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN_STRATTSH }}"
+    homepage: "https://stratt.sh"
+    description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
+    license: Apache-2.0
+    test: |
+      system "#{bin}/stratt version"
+    install: |
+      bin.install "stratt"
+
   - name: stratt
     repository:
       owner: zebpalmer
@@ -66,6 +83,13 @@ brews:
     homepage: "https://stratt.sh"
     description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
     license: Apache-2.0
+    caveats: |
+      stratt has moved to a new tap. To migrate:
+
+        brew untap zebpalmer/tap
+        brew tap stratt-sh/tap
+
+      The zebpalmer/tap will no longer receive updates after this release.
     test: |
       system "#{bin}/stratt version"
     install: |

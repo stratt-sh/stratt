@@ -33,7 +33,7 @@ const strattUpstreamRepo = "zebpalmer/stratt"
 // binary is brew-managed to suggest (and optionally invoke) the right
 // `brew upgrade` command.  Forks should override this alongside
 // strattUpstreamRepo.
-const strattBrewFormula = "zebpalmer/tap/stratt"
+const strattBrewFormula = "stratt-sh/tap/stratt"
 
 func newSelfUpdateCmd(b BuildInfo) *cobra.Command {
 	var (

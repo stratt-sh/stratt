@@ -348,9 +348,9 @@ func TestNotifyIfBehindPrintsAdvisoryWhenCacheHasNewer(t *testing.T) {
 // substitutes the fully-qualified formula name for brew installs.
 func TestPrintAdvisoryUsesFormulaName(t *testing.T) {
 	var buf bytes.Buffer
-	printAdvisory(&buf, InstallHomebrew, "1.2.3", "zebpalmer/tap/stratt")
+	printAdvisory(&buf, InstallHomebrew, "1.2.3", "stratt-sh/tap/stratt")
 	got := buf.String()
-	if !strings.Contains(got, "brew upgrade zebpalmer/tap/stratt") {
+	if !strings.Contains(got, "brew upgrade stratt-sh/tap/stratt") {
 		t.Errorf("expected fully-qualified brew command; got %q", got)
 	}
 }

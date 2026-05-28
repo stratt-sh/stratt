@@ -42,7 +42,8 @@ Two Go projects in your fleet can have completely different release flows (one b
 {{< tabs >}}
 {{< tab name="Homebrew" >}}
 ```sh
-brew install zebpalmer/tap/stratt
+brew tap stratt-sh/tap
+brew install stratt
 ```
 {{< /tab >}}
 {{< tab name="Direct download" >}}

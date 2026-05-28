@@ -11,7 +11,8 @@ Full documentation lives at **[stratt.sh](https://stratt.sh)**.
 ## Install
 
 ```sh
-brew install zebpalmer/tap/stratt
+brew tap stratt-sh/tap
+brew install stratt
 ```
 
 Or grab a binary from the [releases page](https://github.com/zebpalmer/stratt/releases).

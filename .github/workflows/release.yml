@@ -1,6 +1,6 @@
 # Triggered by pushing a semver tag.  GoReleaser builds the cross-
 # platform archives, publishes the GitHub Release, and pushes the
-# Homebrew formula to zebpalmer/homebrew-tap.  Each binary gets a
+# Homebrew formula to stratt-sh/homebrew-tap.  Each binary gets a
 # Sigstore artifact attestation — the trust anchor `stratt self update`
 # verifies against.
 
@@ -45,6 +45,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # PAT with Contents: read+write on zebpalmer/homebrew-tap.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # PAT with Contents: read+write on stratt-sh/homebrew-tap.
+          HOMEBREW_TAP_TOKEN_STRATTSH: ${{ secrets.HOMEBREW_TAP_TOKEN_STRATTSH }}
 
       - name: Attest release binaries
         uses: actions/attest-build-provenance@v4

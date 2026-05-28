@@ -228,7 +228,7 @@ func VerifyCurrent(ctx context.Context, opts Options) error {
 // safe to call from PersistentPreRunE — it doesn't make network calls.
 //
 // brewFormula is the fully-qualified formula name (e.g.
-// "zebpalmer/tap/stratt") used in the advisory when stratt was
+// "stratt-sh/tap/stratt") used in the advisory when stratt was
 // installed via Homebrew.  Pass an empty string to fall back to the
 // unqualified "stratt".
 //

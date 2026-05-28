@@ -9,7 +9,8 @@ Five minutes from install to your first release.
 ## 1. Install
 
 ```sh
-brew install zebpalmer/tap/stratt
+brew tap stratt-sh/tap
+brew install stratt
 stratt version
 ```
 
@@ -163,7 +164,7 @@ stratt self check     # is a newer version available?
 stratt self update    # download, verify, install
 ```
 
-On Homebrew installs, `stratt self update` checks for an update and offers to run `brew upgrade zebpalmer/tap/stratt` for you. Pass `--yes` to skip the prompt; `--ci` to print the command without prompting.
+On Homebrew installs, `stratt self update` checks for an update and offers to run `brew upgrade stratt` for you. Pass `--yes` to skip the prompt; `--ci` to print the command without prompting.
 
 Updates are verified against Sigstore artifact attestations. The trust anchor is compiled into stratt as `zebpalmer/stratt` + the release workflow path — even a compromised GitHub Actions secret can't ship an unsigned binary that stratt accepts.
 
