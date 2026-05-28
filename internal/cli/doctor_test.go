@@ -312,3 +312,73 @@ func TestDoctorReportsConfigSectionEvenWithNoStacks(t *testing.T) {
 		t.Errorf("Project config section missing on no-stacks path: %s", body)
 	}
 }
+
+// TestDoctorRendersUserOverride — a `[tasks.<name>] run = [...]`
+// override must appear in doctor's Resolved-commands table with a
+// `[project config override]` marker, replacing the resolver's built-in default.
+func TestDoctorRendersUserOverride(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"), []byte(`
+[tasks.test]
+run = ["echo my-custom-test"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "1.2.3"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	body := out.String()
+	if !strings.Contains(body, "sh: echo my-custom-test") {
+		t.Errorf("expected user shell body in table; got:\n%s", body)
+	}
+	if !strings.Contains(body, "[project config override]") {
+		t.Errorf("expected [project config override] marker; got:\n%s", body)
+	}
+	// The built-in `go test ./...` should be GONE — we overrode it.
+	if strings.Contains(body, "test     → go test") || strings.Contains(body, "test\t→ go test") {
+		t.Errorf("override didn't displace built-in:\n%s", body)
+	}
+}
+
+// TestDoctorRendersUserAugment — `[tasks.<name>] before = [...]`
+// augments the built-in without replacing it.  Engine name should
+// still appear, plus a `[project config augment]` marker noting the hooks.
+func TestDoctorRendersUserAugment(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"), []byte(`
+[tasks.test]
+before = ["echo pre"]
+after  = ["echo post"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "1.2.3"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	body := out.String()
+	if !strings.Contains(body, "go test ./...") {
+		t.Errorf("augment should preserve built-in engine; got:\n%s", body)
+	}
+	if !strings.Contains(body, "[project config augment]") {
+		t.Errorf("expected [project config augment] marker; got:\n%s", body)
+	}
+	if !strings.Contains(body, "+ before") || !strings.Contains(body, "+ after") {
+		t.Errorf("expected before/after counts; got:\n%s", body)
+	}
+}

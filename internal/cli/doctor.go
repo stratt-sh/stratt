@@ -4,12 +4,82 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/zebpalmer/stratt/internal/capability"
 	"github.com/zebpalmer/stratt/internal/config"
+	"github.com/zebpalmer/stratt/internal/runner"
 )
+
+// renderCommandRow returns the rendered "→ ..." cell and the trailing
+// marker for one row of doctor's Resolved-commands table.  Looks up the
+// universal command in the merged task registry first so user overrides
+// from stratt.toml are surfaced; falls back to the resolver's built-in
+// engine when no registry is available or the command isn't in it.
+//
+// Returns ("", "") when there is genuinely nothing to show (no engine,
+// no user task) — caller renders the "— (no engine matched)" sentinel.
+func renderCommandRow(res capability.Resolution, reg *runner.Registry) (rendered, marker string) {
+	// Prefer the merged task — user overrides live there.
+	if reg != nil {
+		if task := reg.Lookup(res.Command); task != nil {
+			switch task.Source {
+			case runner.SourceOverridden, runner.SourceUser:
+				return renderUserBody(task), "[project config override]"
+			case runner.SourceAugmented:
+				base := "—"
+				if task.Engine != nil {
+					base = task.Engine.Name()
+				}
+				return base + augmentSuffix(task), "[project config augment]"
+			}
+			// SourceBuiltin (or anything else): fall through to the
+			// resolver-engine path below, which carries Status() for
+			// the missing-tool marker.
+		}
+	}
+	// Resolver view (the historical path).
+	if res.Engine == nil {
+		return "", ""
+	}
+	switch res.Engine.Status() {
+	case capability.StatusMissingTool:
+		marker = "[tool not on PATH]"
+	case capability.StatusPending:
+		marker = "[not yet implemented]"
+	}
+	return res.Engine.Name(), marker
+}
+
+// renderUserBody renders an overridden task's body for doctor.  Shell
+// runs become `sh: cmd1; cmd2`; composites become `tasks: a + b`.
+func renderUserBody(t *runner.Task) string {
+	if len(t.Tasks) > 0 {
+		return "tasks: " + strings.Join(t.Tasks, " + ")
+	}
+	if len(t.Run) > 0 {
+		return "sh: " + strings.Join(t.Run, "; ")
+	}
+	return "—"
+}
+
+// augmentSuffix builds the parenthetical for a built-in that's been
+// augmented (before/after hooks added but engine body untouched).
+func augmentSuffix(t *runner.Task) string {
+	var parts []string
+	if len(t.Before) > 0 {
+		parts = append(parts, fmt.Sprintf("+ before: %d cmd(s)", len(t.Before)))
+	}
+	if len(t.After) > 0 {
+		parts = append(parts, fmt.Sprintf("+ after: %d cmd(s)", len(t.After)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
+}
 
 // printConfigStatus renders the "Project config:" section of doctor.
 // Reported as a separate helper so it appears in every code path —
@@ -77,6 +147,17 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 				fmt.Fprintf(out, "  ✓ %s (via %s)\n", s.Name, s.Signal)
 			}
 
+			// Build the merged task registry so we can show the
+			// effective task per universal command (built-in OR user
+			// override).  Registry construction can fail on a malformed
+			// task graph; in that case we fall back to the resolver-only
+			// view and surface the build error inline.
+			var reg *runner.Registry
+			var regErr error
+			if cfgErr == nil {
+				reg, regErr = runner.BuildRegistry(resolver, proj)
+			}
+
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Resolved commands:")
 
@@ -89,17 +170,19 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			for _, res := range resolver.ResolveAll() {
-				if res.Engine == nil {
+				// Try the registry first so user overrides win.  Falls
+				// back to the resolver view when no registry is
+				// available (config error, graph error, or just no
+				// override for this command).
+				rendered, marker := renderCommandRow(res, reg)
+				if rendered == "" {
 					fmt.Fprintf(tw, "  %s\t→ —\t(no engine matched)\n", res.Command)
 					continue
 				}
-				marker := ""
-				switch res.Engine.Status() {
-				case capability.StatusMissingTool:
-					marker = "[tool not on PATH]"
-					// MultiTooler wins when present so fan-out engines
-					// (e.g. lint = ruff + actionlint) surface every
-					// underlying tool, not just the first.
+				// Collect missing-tool names only when we're showing
+				// the resolver's engine — user-override shell commands
+				// don't have a known binary to lint against.
+				if marker == "[tool not on PATH]" {
 					var names []string
 					if mt, ok := res.Engine.(capability.MultiTooler); ok {
 						names = mt.Tools()
@@ -114,12 +197,16 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 							missingTools = append(missingTools, name)
 						}
 					}
-				case capability.StatusPending:
-					marker = "[not yet implemented]"
 				}
-				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", res.Command, res.Engine.Name(), marker)
+				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", res.Command, rendered, marker)
 			}
 			tw.Flush()
+
+			if regErr != nil {
+				fmt.Fprintln(out)
+				fmt.Fprintf(out, "Note: task registry could not be built (%v) —\n", regErr)
+				fmt.Fprintln(out, "      the table above shows the resolver's built-in choice; runtime would error before executing.")
+			}
 
 			if len(missingTools) > 0 {
 				fmt.Fprintln(out)
