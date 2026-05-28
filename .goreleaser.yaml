@@ -53,28 +53,32 @@ changelog:
 
 # Homebrew tap publishing.
 #
-# Pushes to two taps during the transition period:
-#   - stratt-sh/homebrew-tap  (new canonical tap)
-#   - zebpalmer/homebrew-tap  (legacy, shows deprecation caveats — drop this
-#                              entry once existing users have migrated)
+# TWO-RELEASE MIGRATION STRATEGY:
+#   Release 1 (this one): zebpalmer/tap only. Binary includes a runtime
+#     notice on every invocation telling users to migrate.
+#   Release 2 (next): stratt-sh/tap only (uncomment below, remove notice
+#     from internal/cli/self.go, drop the zebpalmer entry or leave for caveats).
 #
 # Secrets required on this repo:
-#   - HOMEBREW_TAP_TOKEN        fine-grained PAT, Contents r/w on zebpalmer/homebrew-tap
-#   - HOMEBREW_TAP_TOKEN_STRATTSH  fine-grained PAT, Contents r/w on stratt-sh/homebrew-tap
-brews:
-  - name: stratt
-    repository:
-      owner: stratt-sh
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN_STRATTSH }}"
-    homepage: "https://stratt.sh"
-    description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
-    license: Apache-2.0
-    test: |
-      system "#{bin}/stratt version"
-    install: |
-      bin.install "stratt"
+#   - HOMEBREW_TAP_TOKEN          fine-grained PAT, Contents r/w on zebpalmer/homebrew-tap
+#   - HOMEBREW_TAP_TOKEN_STRATTSH fine-grained PAT, Contents r/w on stratt-sh/homebrew-tap
 
+# stratt-sh/tap entry — uncomment for Release 2 once the transition release is out.
+# brews:
+#   - name: stratt
+#     repository:
+#       owner: stratt-sh
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN_STRATTSH }}"
+#     homepage: "https://stratt.sh"
+#     description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
+#     license: Apache-2.0
+#     test: |
+#       system "#{bin}/stratt version"
+#     install: |
+#       bin.install "stratt"
+
+brews:
   - name: stratt
     repository:
       owner: zebpalmer
