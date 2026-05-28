@@ -23,6 +23,13 @@ var uvAllFlags = []string{"--all-extras", "--all-groups"}
 // resolveBuild — see requirements.md §3 "build" chain.
 func (r *Resolver) resolveBuild() Engine {
 	switch {
+	case r.HasStack("ansible-collection"):
+		// `--force` overwrites the existing tarball in dist/ so repeated
+		// builds in CI are idempotent.
+		return &execEngine{
+			tool: "ansible-galaxy",
+			argv: []string{"collection", "build", "--force", "--output-path", "dist"},
+		}
 	case r.HasStack("python+uv"):
 		return &execEngine{tool: "uv", argv: []string{"build"}}
 	case r.HasStack("go") && r.fileExists(".goreleaser.yaml", ".goreleaser.yml"):
@@ -43,6 +50,14 @@ func (r *Resolver) resolveBuild() Engine {
 // resolveTest — see requirements.md §3 "test" chain.
 func (r *Resolver) resolveTest() Engine {
 	switch {
+	case r.HasStack("ansible-collection") || r.HasStack("ansible-role"):
+		// `ansible-lint --strict` is the closest universal default for
+		// Ansible "test" — sanity tests (`ansible-test sanity`) require
+		// the collection to be installed in a specific path layout and
+		// aren't safe to invoke without configuration.  Repos with
+		// molecule or playbook syntax-check suites can override via
+		// [tasks.test] in stratt.toml.
+		return &execEngine{tool: "ansible-lint", argv: []string{"--strict"}}
 	case r.HasStack("python+uv"):
 		return &execEngine{tool: "uv", argv: append([]string{"run"}, append(uvAllFlags, "pytest")...)}
 	case r.HasStack("go"):
@@ -113,6 +128,12 @@ func (r *Resolver) ActionlintAvailable() (workflowsExist, toolAvailable bool) {
 // duplicating the switch.
 func (r *Resolver) languageLintEngine(fix bool) Engine {
 	switch {
+	case r.HasStack("ansible-collection") || r.HasStack("ansible-role"):
+		argv := []string{}
+		if fix {
+			argv = append(argv, "--fix")
+		}
+		return &execEngine{tool: "ansible-lint", argv: argv}
 	case r.HasStack("python+uv"):
 		argv := append([]string{"run"}, uvAllFlags...)
 		argv = append(argv, "ruff", "check")
@@ -241,6 +262,15 @@ func (r *Resolver) resolveRelease() Engine {
 	case r.fileExists(".goreleaser.yaml", ".goreleaser.yml"):
 		return &delegateEngine{
 			display:     "tag-only release (CI runs goreleaser on tag-push)",
+			delegateCmd: "stratt release",
+		}
+	case r.HasStack("ansible-collection"):
+		// Ansible collections version in galaxy.yml.  The bump loader
+		// synthesizes a config from galaxy.yml when no explicit
+		// [bump] / [tool.bumpversion] is present, so this delegates
+		// to the same `stratt release` subcommand as other stacks.
+		return &delegateEngine{
+			display:     "native bump engine (reads galaxy.yml version)",
 			delegateCmd: "stratt release",
 		}
 	case r.HasStack("go") || r.HasStack("python+uv") || r.HasStack("php"):

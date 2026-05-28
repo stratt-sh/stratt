@@ -58,6 +58,12 @@ func InstallHint(tool string) string {
 	// GitHub Actions
 	case "actionlint":
 		return "brew install actionlint"
+
+	// Ansible
+	case "ansible-lint":
+		return "uv tool install ansible-lint"
+	case "ansible-galaxy", "ansible-playbook", "ansible-test":
+		return "uv tool install ansible-core"
 	}
 	return ""
 }

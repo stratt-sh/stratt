@@ -302,3 +302,89 @@ func TestStrattTomlBumpSection(t *testing.T) {
 		t.Errorf("got %v", got.Engine)
 	}
 }
+
+const ansibleGalaxyYML = `namespace: zebpalmer
+name: tailscale
+version: 0.7.2
+readme: README.md
+`
+
+// ansibleCollectionDir creates a temp dir containing a minimal galaxy.yml
+// and roles/<role>/{tasks,meta}/main.yml.
+func ansibleCollectionDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", ansibleGalaxyYML)
+	touch(t, dir, "roles/machine/tasks/main.yml")
+	touch(t, dir, "roles/machine/meta/main.yml")
+	return dir
+}
+
+func TestBuildChainAnsibleCollection(t *testing.T) {
+	r := New(ansibleCollectionDir(t))
+	got := r.Resolve("build")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	want := "ansible-galaxy collection build --force --output-path dist"
+	if got.Engine.Name() != want {
+		t.Errorf("got %q, want %q", got.Engine.Name(), want)
+	}
+}
+
+// TestBuildChainAnsibleBeatsPythonUV — a collection that also has
+// pyproject.toml + uv.lock for tooling should still build as Ansible,
+// not run `uv build` on a non-Python package.
+func TestBuildChainAnsibleBeatsPythonUV(t *testing.T) {
+	dir := ansibleCollectionDir(t)
+	touch(t, dir, "pyproject.toml")
+	touch(t, dir, "uv.lock")
+
+	r := New(dir)
+	got := r.Resolve("build")
+	if got.Engine == nil || got.Engine.Name() != "ansible-galaxy collection build --force --output-path dist" {
+		t.Errorf("got %v", got.Engine)
+	}
+}
+
+func TestLintChainAnsibleCollection(t *testing.T) {
+	r := New(ansibleCollectionDir(t))
+	got := r.Resolve("lint")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	if got.Engine.Name() != "ansible-lint --fix" {
+		t.Errorf("got %q", got.Engine.Name())
+	}
+}
+
+func TestLintCheckAnsibleCollection(t *testing.T) {
+	r := New(ansibleCollectionDir(t))
+	got := r.ResolveLintCheck()
+	if got == nil {
+		t.Fatal("expected engine")
+	}
+	if got.Name() != "ansible-lint" {
+		t.Errorf("got %q", got.Name())
+	}
+}
+
+func TestTestChainAnsibleCollection(t *testing.T) {
+	r := New(ansibleCollectionDir(t))
+	got := r.Resolve("test")
+	if got.Engine == nil || got.Engine.Name() != "ansible-lint --strict" {
+		t.Errorf("got %v", got.Engine)
+	}
+}
+
+func TestReleaseChainAnsibleCollection(t *testing.T) {
+	r := New(ansibleCollectionDir(t))
+	got := r.Resolve("release")
+	if got.Engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+	want := "native bump engine (reads galaxy.yml version)"
+	if got.Engine.Name() != want {
+		t.Errorf("got %q, want %q", got.Engine.Name(), want)
+	}
+}

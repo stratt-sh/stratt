@@ -164,6 +164,68 @@ func TestDetectHugoAbsent(t *testing.T) {
 	}
 }
 
+// writeFile writes body to root/rel, creating parent dirs as needed.
+func writeFile(t *testing.T, root, rel, body string) {
+	t.Helper()
+	path := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %v", err)
+	}
+}
+
+const galaxyYML = `namespace: zebpalmer
+name: tailscale
+version: 0.7.2
+readme: README.md
+`
+
+func TestDetectAnsibleCollection(t *testing.T) {
+	dir := t.TempDir()
+	if got := detectAnsibleCollection(dir); got.Name != "" {
+		t.Fatalf("empty repo: got %+v", got)
+	}
+	writeFile(t, dir, "galaxy.yml", galaxyYML)
+	if got := detectAnsibleCollection(dir); got.Name != "ansible-collection" {
+		t.Fatalf("galaxy.yml present: got %+v", got)
+	}
+}
+
+// TestDetectAnsibleCollectionRequiresBothKeys — a galaxy.yml missing
+// either `namespace:` or `name:` is not a collection (it might be a
+// role meta file with a different schema).
+func TestDetectAnsibleCollectionRequiresBothKeys(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", "name: tailscale\nversion: 1.0.0\n")
+	if got := detectAnsibleCollection(dir); got.Name != "" {
+		t.Fatalf("name-only galaxy.yml should not match: got %+v", got)
+	}
+}
+
+func TestDetectAnsibleRole(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "roles/machine/tasks/main.yml")
+	touch(t, dir, "roles/machine/meta/main.yml")
+	if got := detectAnsibleRole(dir); got.Name != "ansible-role" {
+		t.Fatalf("role layout present: got %+v", got)
+	}
+}
+
+// TestDetectAnsibleRoleSkippedInsideCollection — when galaxy.yml is
+// present the role inside the collection should not be reported as a
+// standalone role stack.
+func TestDetectAnsibleRoleSkippedInsideCollection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", galaxyYML)
+	touch(t, dir, "roles/machine/tasks/main.yml")
+	touch(t, dir, "roles/machine/meta/main.yml")
+	if got := detectAnsibleRole(dir); got.Name != "" {
+		t.Fatalf("role inside collection should not match: got %+v", got)
+	}
+}
+
 // TestScanMultiStack covers a representative multi-stack repo:
 // python+uv + docker + kustomize + mkdocs.  Names should come back
 // sorted alphabetically per Scan's contract.

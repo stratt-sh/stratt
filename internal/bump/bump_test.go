@@ -493,3 +493,191 @@ func TestLoadNothingPresent(t *testing.T) {
 		t.Errorf("expected no warning, got %q", warn)
 	}
 }
+
+// TestLoadFromGalaxyYML — Ansible collection without any explicit bump
+// config picks up galaxy.yml's version field automatically.
+func TestLoadFromGalaxyYML(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", "namespace: zebpalmer\nname: tailscale\nversion: 0.7.2\nreadme: README.md\n")
+
+	cfg, _, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg == nil {
+		t.Fatal("expected synthesized config from galaxy.yml, got nil")
+	}
+	if cfg.CurrentVersion != "0.7.2" {
+		t.Errorf("CurrentVersion: got %q, want %q", cfg.CurrentVersion, "0.7.2")
+	}
+	if len(cfg.Files) != 1 || cfg.Files[0].Filename != "galaxy.yml" {
+		t.Errorf("Files: got %+v", cfg.Files)
+	}
+	if !cfg.Commit || !cfg.Tag {
+		t.Errorf("expected Commit=Tag=true, got Commit=%v Tag=%v", cfg.Commit, cfg.Tag)
+	}
+}
+
+// TestLoadFromGalaxyYMLEndToEnd — synthesized config + Compute + Apply
+// actually updates galaxy.yml.
+func TestLoadFromGalaxyYMLEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", "namespace: zebpalmer\nname: tailscale\nversion: 0.7.2\n")
+
+	cfg, _, err := Load(dir)
+	if err != nil || cfg == nil {
+		t.Fatalf("load: cfg=%v err=%v", cfg, err)
+	}
+	plan, err := Compute(cfg, Minor, dir)
+	if err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+	if plan.NewVersion != "0.8.0" {
+		t.Errorf("NewVersion: got %q, want 0.8.0", plan.NewVersion)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "galaxy.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "version: 0.8.0") {
+		t.Errorf("galaxy.yml not updated; contents:\n%s", got)
+	}
+	if strings.Contains(string(got), "version: 0.7.2") {
+		t.Errorf("old version still present:\n%s", got)
+	}
+}
+
+// TestLoadGalaxyYMLPriorityBelowTOML — when both galaxy.yml and a TOML
+// bump config exist, the TOML config wins.
+func TestLoadGalaxyYMLPriorityBelowTOML(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", "namespace: x\nname: y\nversion: 0.7.2\n")
+	writeFile(t, dir, "stratt.toml", "[bump]\ncurrent_version = \"9.9.9\"\n")
+
+	cfg, _, err := Load(dir)
+	if err != nil || cfg == nil {
+		t.Fatalf("load: cfg=%v err=%v", cfg, err)
+	}
+	if cfg.CurrentVersion != "9.9.9" {
+		t.Errorf("expected TOML to win, got %q", cfg.CurrentVersion)
+	}
+}
+
+// TestLoadGalaxyYMLMissingFields — a galaxy.yml without all three of
+// namespace/name/version doesn't synthesize anything.
+func TestLoadGalaxyYMLMissingFields(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "galaxy.yml", "name: y\nversion: 0.1.0\n")
+
+	cfg, _, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != nil {
+		t.Errorf("expected nil, got %+v", cfg)
+	}
+}
+
+// TestApplyReplaceAllUpdatesEveryOccurrence — replace_all=true rewrites
+// every match in a file (README/changelog use case), not just the first.
+func TestApplyReplaceAllUpdatesEveryOccurrence(t *testing.T) {
+	dir := t.TempDir()
+	body := "first version: \"1.0.0\"\nsecond version: \"1.0.0\"\n"
+	writeFile(t, dir, "README.md", body)
+	cfg := &Config{
+		CurrentVersion: "1.0.0",
+		Files: []FileEntry{{
+			Filename:   "README.md",
+			Search:     `version: "{current_version}"`,
+			Replace:    `version: "{new_version}"`,
+			ReplaceAll: true,
+		}},
+	}
+	plan, err := Compute(cfg, Minor, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "README.md"))
+	if strings.Contains(string(got), "1.0.0") {
+		t.Errorf("expected no 1.0.0 remaining, got:\n%s", got)
+	}
+	if strings.Count(string(got), "1.1.0") != 2 {
+		t.Errorf("expected 2 occurrences of new version, got:\n%s", got)
+	}
+}
+
+// TestApplyReplaceFirstOnlyByDefault — without replace_all, only the
+// first match is rewritten (bump-my-version parity).
+func TestApplyReplaceFirstOnlyByDefault(t *testing.T) {
+	dir := t.TempDir()
+	body := "version: \"1.0.0\"\nversion: \"1.0.0\"\n"
+	writeFile(t, dir, "README.md", body)
+	cfg := &Config{
+		CurrentVersion: "1.0.0",
+		Files: []FileEntry{{
+			Filename: "README.md",
+			Search:   `version: "{current_version}"`,
+			Replace:  `version: "{new_version}"`,
+		}},
+	}
+	plan, err := Compute(cfg, Patch, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "README.md"))
+	if strings.Count(string(got), "1.0.0") != 1 || strings.Count(string(got), "1.0.1") != 1 {
+		t.Errorf("expected one of each version, got:\n%s", got)
+	}
+}
+
+// TestLoadReplaceAllFromTOML — the `replace_all` field round-trips
+// through the TOML loader.
+func TestLoadReplaceAllFromTOML(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "stratt.toml", `[bump]
+current_version = "1.0.0"
+
+[[bump.files]]
+filename = "README.md"
+search = "v{current_version}"
+replace = "v{new_version}"
+replace_all = true
+`)
+	cfg, _, err := Load(dir)
+	if err != nil || cfg == nil {
+		t.Fatalf("load: cfg=%v err=%v", cfg, err)
+	}
+	var found *FileEntry
+	for i := range cfg.Files {
+		if cfg.Files[i].Filename == "README.md" {
+			found = &cfg.Files[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("README.md entry missing")
+	}
+	if !found.ReplaceAll {
+		t.Errorf("ReplaceAll: got false, want true")
+	}
+}
+
+func TestParseGalaxyTopLevelQuoted(t *testing.T) {
+	data := []byte(`namespace: "ns"
+name: 'nm'
+version: 1.2.3
+description: "Has a colon: yes"
+`)
+	got := parseGalaxyTopLevel(data)
+	if got["namespace"] != "ns" || got["name"] != "nm" || got["version"] != "1.2.3" {
+		t.Errorf("got %+v", got)
+	}
+}

@@ -96,6 +96,11 @@ type FileEntry struct {
 	Filename string
 	Search   string // empty → inherit from Config.SearchTemplate
 	Replace  string // empty → inherit from Config.ReplaceTemplate
+	// ReplaceAll, when true, replaces every occurrence of Search in the
+	// file.  Default (false) replaces only the first match — matching
+	// bump-my-version's behavior.  Useful for files like READMEs that
+	// reference the version in multiple places.
+	ReplaceAll bool
 }
 
 // Plan is the result of computing a bump.  All fields are populated
@@ -119,6 +124,10 @@ type FileChange struct {
 	// caller filters it out, matching bump-my-version's
 	// `ignore_missing_version = false` default.
 	Found bool
+	// ReplaceAll mirrors FileEntry.ReplaceAll — when true, every
+	// occurrence of OldChunk in the file is rewritten, not just the
+	// first.
+	ReplaceAll bool
 }
 
 // Compute returns a Plan for bumping cfg by kind.  The plan is
@@ -149,10 +158,11 @@ func Compute(cfg *Config, kind Kind, root string) (*Plan, error) {
 			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}
 		plan.FileChanges = append(plan.FileChanges, FileChange{
-			Path:     path,
-			OldChunk: oldChunk,
-			NewChunk: newChunk,
-			Found:    found,
+			Path:       path,
+			OldChunk:   oldChunk,
+			NewChunk:   newChunk,
+			Found:      found,
+			ReplaceAll: fe.ReplaceAll,
 		})
 	}
 	plan.CommitMessage = substitute(orDefault(cfg.MessageTemplate, "",
@@ -179,7 +189,11 @@ func Apply(plan *Plan) error {
 		if err != nil {
 			return err
 		}
-		updated := strings.Replace(string(data), change.OldChunk, change.NewChunk, 1)
+		n := 1
+		if change.ReplaceAll {
+			n = -1
+		}
+		updated := strings.Replace(string(data), change.OldChunk, change.NewChunk, n)
 		if updated == string(data) {
 			// Re-check protects against a race between Compute and Apply.
 			return fmt.Errorf("%w: search string disappeared from %s before apply",

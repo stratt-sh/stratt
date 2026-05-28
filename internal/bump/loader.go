@@ -18,6 +18,7 @@ import (
 //  3. [tool.bumpversion] in pyproject.toml
 //  4. .bumpversion.toml
 //  5. .bumpversion.cfg  (INI; emits a deprecation warning)
+//  6. galaxy.yml  (Ansible collection — synthesized config)
 //
 // Returns (nil, "", nil) for repos with no bump config — the resolver
 // then falls through to tag-only release mode.
@@ -60,7 +61,84 @@ func Load(root string) (*Config, string, error) {
 		}
 	}
 
+	// 6: Ansible collection — synthesize a config from galaxy.yml when
+	// the user hasn't declared an explicit bump config.  Lets `stratt
+	// release` work zero-config on collection repos.
+	galaxyPath := filepath.Join(root, "galaxy.yml")
+	if exists(galaxyPath) {
+		if cfg, err := loadAnsibleGalaxy(galaxyPath); err != nil {
+			return nil, "", err
+		} else if cfg != nil {
+			cfg.Source = galaxyPath
+			return cfg, "", nil
+		}
+	}
+
 	return nil, "", nil
+}
+
+// loadAnsibleGalaxy synthesizes a bump Config from an Ansible
+// collection's galaxy.yml.  Returns nil (no error) if the file doesn't
+// look like a collection manifest (missing namespace/name/version).
+//
+// The galaxy.yml `version:` field is the single source of truth for
+// collection releases.  Users who need additional file edits (e.g.
+// version-mirroring in README.md) can add [tool.stratt.bump] in
+// pyproject.toml or [bump] in stratt.toml — those take priority over
+// this fallback.
+func loadAnsibleGalaxy(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	fields := parseGalaxyTopLevel(data)
+	if fields["namespace"] == "" || fields["name"] == "" || fields["version"] == "" {
+		return nil, nil
+	}
+	return &Config{
+		CurrentVersion: fields["version"],
+		Files: []FileEntry{{
+			Filename: "galaxy.yml",
+			Search:   "version: {current_version}",
+			Replace:  "version: {new_version}",
+		}},
+		Commit: true,
+		Tag:    true,
+	}, nil
+}
+
+// parseGalaxyTopLevel pulls out plain `key: value` pairs from a galaxy.yml.
+// galaxy.yml is a flat document in practice; a real YAML parser is overkill
+// for the three keys we care about (namespace, name, version).  Quoted
+// values have their surrounding ASCII quotes stripped.
+func parseGalaxyTopLevel(data []byte) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		// Skip indented lines (those are nested values) and comments.
+		if line == "" || line[0] == ' ' || line[0] == '\t' || line[0] == '#' || line[0] == '-' {
+			continue
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colon])
+		val := strings.TrimSpace(line[colon+1:])
+		// Trim an inline comment.
+		if hash := strings.Index(val, " #"); hash >= 0 {
+			val = strings.TrimSpace(val[:hash])
+		}
+		// Strip surrounding quotes if present.
+		if len(val) >= 2 {
+			first, last := val[0], val[len(val)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				val = val[1 : len(val)-1]
+			}
+		}
+		out[key] = val
+	}
+	return out
 }
 
 // ensureSourceInFiles auto-adds the bump source file to cfg.Files when
@@ -95,10 +173,14 @@ func ensureSourceInFiles(cfg *Config, root string) {
 
 // defaultSearchReplaceForSource picks the format-correct search/replace
 // templates for the current_version line.  INI omits the quotes that
-// TOML wraps strings in.
+// TOML wraps strings in; YAML uses `version: ...` rather than
+// `current_version = ...`.
 func defaultSearchReplaceForSource(filename string) (search, replace string) {
-	if strings.HasSuffix(filename, ".cfg") || strings.HasSuffix(filename, ".ini") {
+	switch {
+	case strings.HasSuffix(filename, ".cfg"), strings.HasSuffix(filename, ".ini"):
 		return `current_version = {current_version}`, `current_version = {new_version}`
+	case strings.HasSuffix(filename, ".yml"), strings.HasSuffix(filename, ".yaml"):
+		return `version: {current_version}`, `version: {new_version}`
 	}
 	return `current_version = "{current_version}"`, `current_version = "{new_version}"`
 }
@@ -194,9 +276,10 @@ type rawBumpVersion struct {
 }
 
 type rawFileEntry struct {
-	Filename string `toml:"filename"`
-	Search   string `toml:"search"`
-	Replace  string `toml:"replace"`
+	Filename   string `toml:"filename"`
+	Search     string `toml:"search"`
+	Replace    string `toml:"replace"`
+	ReplaceAll bool   `toml:"replace_all"`
 }
 
 func (rb *rawBumpVersion) toConfig() *Config {
@@ -211,9 +294,10 @@ func (rb *rawBumpVersion) toConfig() *Config {
 	}
 	for _, fe := range rb.Files {
 		c.Files = append(c.Files, FileEntry{
-			Filename: fe.Filename,
-			Search:   fe.Search,
-			Replace:  fe.Replace,
+			Filename:   fe.Filename,
+			Search:     fe.Search,
+			Replace:    fe.Replace,
+			ReplaceAll: fe.ReplaceAll,
 		})
 	}
 	return c

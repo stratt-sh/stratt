@@ -42,6 +42,8 @@ var detectors = []detector{
 	detectSphinx,
 	detectHugo,
 	detectGitHubActions,
+	detectAnsibleCollection,
+	detectAnsibleRole,
 }
 
 // Scan runs all detectors against root and returns the report.
@@ -186,6 +188,75 @@ func detectGitHubActions(root string) Stack {
 		}
 	}
 	return Stack{}
+}
+
+// detectAnsibleCollection matches an Ansible collection repo by the
+// presence of galaxy.yml at the root with both `namespace:` and `name:`
+// keys.  The two-key requirement avoids a false positive on bare role
+// repositories that ship a Galaxy-style meta file without being a
+// collection.
+func detectAnsibleCollection(root string) Stack {
+	path := filepath.Join(root, "galaxy.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Stack{}
+	}
+	if hasYAMLKey(data, "namespace") && hasYAMLKey(data, "name") {
+		return Stack{Name: "ansible-collection", Signal: "galaxy.yml"}
+	}
+	return Stack{}
+}
+
+// detectAnsibleRole matches a standalone Ansible role: at least one
+// roles/*/tasks/main.{yml,yaml} alongside roles/*/meta/main.{yml,yaml}
+// in the same role directory, with no galaxy.yml at the root.  Skipped
+// when ansible-collection has already matched — roles inside a
+// collection are not independently versioned.
+func detectAnsibleRole(root string) Stack {
+	if exists(filepath.Join(root, "galaxy.yml")) {
+		return Stack{}
+	}
+	rolesDir := filepath.Join(root, "roles")
+	entries, err := os.ReadDir(rolesDir)
+	if err != nil {
+		return Stack{}
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		role := filepath.Join(rolesDir, e.Name())
+		if hasAnyFile(role, "tasks/main.yml", "tasks/main.yaml") &&
+			hasAnyFile(role, "meta/main.yml", "meta/main.yaml") {
+			return Stack{Name: "ansible-role", Signal: "roles/*/tasks/main.yml"}
+		}
+	}
+	return Stack{}
+}
+
+func hasAnyFile(root string, rels ...string) bool {
+	for _, r := range rels {
+		if exists(filepath.Join(root, r)) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasYAMLKey reports whether data contains a top-level YAML key matching
+// name (i.e. `<name>:` at column 0).  Sufficient for the detection
+// signals we care about (galaxy.yml is a simple flat document) without
+// dragging in a YAML parser.
+func hasYAMLKey(data []byte, name string) bool {
+	prefix := name + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		// Strip a trailing CR for CRLF-formatted files.
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func exists(path string) bool {

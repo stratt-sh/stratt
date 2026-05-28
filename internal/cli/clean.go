@@ -22,13 +22,15 @@ Always removes:
   .stratt/cache/
 
 Per stack:
-  go        → ./bin
-  python+uv → .venv/, build/, dist/, *.egg-info, .pytest_cache/,
-              .ruff_cache/, .coverage, htmlcov/, **/__pycache__, and
-              ` + "`uv cache clean`" + ` to drop the global uv download cache
-  mkdocs    → site/
-  sphinx    → docs/_build/, docs/_autosummary/
-  hugo      → <hugo source>/public/
+  go                 → ./bin
+  python+uv          → .venv/, build/, dist/, *.egg-info, .pytest_cache/,
+                       .ruff_cache/, .coverage, htmlcov/, **/__pycache__, and
+                       ` + "`uv cache clean`" + ` to drop the global uv download cache
+  ansible-collection → dist/, .ansible/, collections/
+  ansible-role       → .ansible/
+  mkdocs             → site/
+  sphinx             → docs/_build/, docs/_autosummary/
+  hugo               → <hugo source>/public/
 
 Does not touch Docker images by default (requires --docker explicitly).
 After cleaning a python+uv repo, run ` + "`stratt setup`" + ` to rebuild .venv.`,
@@ -74,6 +76,14 @@ After cleaning a python+uv repo, run ` + "`stratt setup`" + ` to rebuild .venv.`
 					if src != "" {
 						targets = append(targets, filepath.Join(cwd, src, "public"))
 					}
+				case "ansible-collection":
+					targets = append(targets,
+						filepath.Join(cwd, "dist"),
+						filepath.Join(cwd, ".ansible"),
+						filepath.Join(cwd, "collections"),
+					)
+				case "ansible-role":
+					targets = append(targets, filepath.Join(cwd, ".ansible"))
 				}
 			}
 			for _, p := range targets {
