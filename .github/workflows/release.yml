@@ -43,8 +43,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with Contents: read+write on zebpalmer/homebrew-tap.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           # PAT with Contents: read+write on stratt-sh/homebrew-tap.
           HOMEBREW_TAP_TOKEN_STRATTSH: ${{ secrets.HOMEBREW_TAP_TOKEN_STRATTSH }}
 

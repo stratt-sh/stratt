@@ -217,7 +217,6 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 	// Two-stage notifier: print cached advisory synchronously (no IO race),
 	// then refresh the cache in the background for the next invocation.
 	update.NotifyIfBehind(os.Stderr, b.Version, strattBrewFormula)
-	notifyTapMoved(os.Stderr)
 	go update.RefreshNotifierState(cmd.Context(), update.Options{
 		Repo:           strattUpstreamRepo,
 		CurrentVersion: b.Version,

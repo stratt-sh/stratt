@@ -53,47 +53,25 @@ changelog:
 
 # Homebrew tap publishing.
 #
-# TWO-RELEASE MIGRATION STRATEGY:
-#   Release 1 (this one): zebpalmer/tap only. Binary includes a runtime
-#     notice on every invocation telling users to migrate.
-#   Release 2 (next): stratt-sh/tap only (uncomment below, remove notice
-#     from internal/cli/self.go, drop the zebpalmer entry or leave for caveats).
+# Homebrew tap publishing.
+#
+# zebpalmer/tap was the legacy tap — its last release was the 0.10.1
+# transition that prompted users to migrate. That entry has been removed;
+# users still on zebpalmer/tap will see the in-binary migration notice
+# until they run the migration steps.
 #
 # Secrets required on this repo:
-#   - HOMEBREW_TAP_TOKEN          fine-grained PAT, Contents r/w on zebpalmer/homebrew-tap
 #   - HOMEBREW_TAP_TOKEN_STRATTSH fine-grained PAT, Contents r/w on stratt-sh/homebrew-tap
-
-# stratt-sh/tap entry — uncomment for Release 2 once the transition release is out.
-# brews:
-#   - name: stratt
-#     repository:
-#       owner: stratt-sh
-#       name: homebrew-tap
-#       token: "{{ .Env.HOMEBREW_TAP_TOKEN_STRATTSH }}"
-#     homepage: "https://stratt.sh"
-#     description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
-#     license: Apache-2.0
-#     test: |
-#       system "#{bin}/stratt version"
-#     install: |
-#       bin.install "stratt"
 
 brews:
   - name: stratt
     repository:
-      owner: zebpalmer
+      owner: stratt-sh
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN_STRATTSH }}"
     homepage: "https://stratt.sh"
     description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
     license: Apache-2.0
-    caveats: |
-      stratt has moved to a new tap. To migrate:
-
-        brew untap zebpalmer/tap
-        brew tap stratt-sh/tap
-
-      The zebpalmer/tap will no longer receive updates after this release.
     test: |
       system "#{bin}/stratt version"
     install: |

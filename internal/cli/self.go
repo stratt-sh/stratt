@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 
@@ -35,28 +34,6 @@ const strattUpstreamRepo = "zebpalmer/stratt"
 // `brew upgrade` command.  Forks should override this alongside
 // strattUpstreamRepo.
 const strattBrewFormula = "stratt-sh/tap/stratt"
-
-// notifyTapMoved prints a migration advisory on every non-exempt command
-// invocation. This binary is only published to zebpalmer/tap (stratt-sh/tap
-// is commented out in .goreleaser.yaml for this release). The next release
-// will remove this notice and publish to stratt-sh/tap.
-func notifyTapMoved(w io.Writer) {
-	if update.IsCI() {
-		return
-	}
-	kind, _ := update.DetectInstall()
-	switch kind {
-	case update.InstallHomebrew:
-		fmt.Fprint(w, "\nNOTICE: The stratt Homebrew tap has moved. Migrate with:\n")
-		fmt.Fprint(w, "  brew untap zebpalmer/tap\n")
-		fmt.Fprint(w, "  brew tap stratt-sh/tap\n")
-		fmt.Fprint(w, "  brew upgrade stratt\n")
-		fmt.Fprint(w, "  zebpalmer/tap will not receive further updates.\n\n")
-	default:
-		fmt.Fprint(w, "\nNOTICE: stratt has a new home at https://github.com/stratt-sh/stratt\n")
-		fmt.Fprint(w, "  Run `stratt self update` to upgrade to the latest release.\n\n")
-	}
-}
 
 func newSelfUpdateCmd(b BuildInfo) *cobra.Command {
 	var (
