@@ -36,6 +36,11 @@ func TestCleanRemovesGoArtifacts(t *testing.T) {
 
 func TestCleanRemovesPythonArtifacts(t *testing.T) {
 	dir := t.TempDir()
+	// Point uv at an empty temp cache so `uv cache clean` (invoked by
+	// the python+uv branch) doesn't walk the dev machine's real cache —
+	// that walk has been observed to take several minutes on caches
+	// with many cached wheels.
+	t.Setenv("UV_CACHE_DIR", t.TempDir())
 	touch(t, dir, "pyproject.toml")
 	touch(t, dir, "uv.lock")
 	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
