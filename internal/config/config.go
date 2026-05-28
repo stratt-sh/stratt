@@ -167,11 +167,35 @@ type rawTask struct {
 // bump-my-version shape that stratt also accepts during the v1
 // transition).  The bump package's loader does the full structural
 // parsing; the config package only needs to recognize presence.
+//
+// All fields the bump package accepts must be listed here too, even
+// when the config package doesn't surface them — `loadStrict` enforces
+// DisallowUnknownFields document-wide (R2.3.8), so any field present in
+// real bump configs but absent from this struct fails the strict gate.
 type rawBump struct {
 	CurrentVersion  string `toml:"current_version"`
 	Files           any    `toml:"files"`
 	MessageTemplate string `toml:"message_template"`
 	TagPrefix       string `toml:"tag_prefix"`
+
+	// Mirror of the fields recognized by bump/loader.go's
+	// rawBumpVersion.  Parsed here only to keep strict mode happy;
+	// the bump package re-reads the file for its own decoding.
+	Search               string   `toml:"search"`
+	Replace              string   `toml:"replace"`
+	Tag                  *bool    `toml:"tag"`
+	TagName              string   `toml:"tag_name"`
+	Commit               *bool    `toml:"commit"`
+	Message              string   `toml:"message"`
+	Parse                string   `toml:"parse"`
+	Serialize            []string `toml:"serialize"`
+	Regex                *bool    `toml:"regex"`
+	IgnoreMissingVersion *bool    `toml:"ignore_missing_version"`
+	SignTags             *bool    `toml:"sign_tags"`
+	TagMessage           string   `toml:"tag_message"`
+	AllowDirty           *bool    `toml:"allow_dirty"`
+	CommitArgs           string   `toml:"commit_args"`
+	PreCommitHooks       []string `toml:"pre_commit_hooks"`
 }
 
 // ErrConflict is returned when both stratt.toml exists AND pyproject.toml

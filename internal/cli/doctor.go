@@ -3,11 +3,40 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/zebpalmer/stratt/internal/capability"
+	"github.com/zebpalmer/stratt/internal/config"
 )
+
+// printConfigStatus renders the "Project config:" section of doctor.
+// Reported as a separate helper so it appears in every code path —
+// including "no recognized stacks", which used to return early.
+//
+// Intentionally never returns an error: doctor must stay usable when
+// the config is broken, so config errors are *displayed*, not raised.
+func printConfigStatus(out interface{ Write([]byte) (int, error) }, cwd string, proj *config.Project, cfgErr error, version string) {
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Project config:")
+	switch {
+	case cfgErr != nil:
+		fmt.Fprintf(out, "  ✗ error loading config: %v\n", cfgErr)
+		fmt.Fprintln(out, "    every command except `version`, `doctor`, `help`, and `self ...` will refuse to run until this is fixed.")
+	case proj == nil || proj.Source == "":
+		fmt.Fprintln(out, "  ✓ no project config (stratt.toml / [tool.stratt] in pyproject.toml) — zero-config mode")
+	default:
+		rel, err := filepath.Rel(cwd, proj.Source)
+		if err != nil {
+			rel = proj.Source
+		}
+		fmt.Fprintf(out, "  ✓ loaded %s\n", rel)
+		if proj.RequiredStratt != "" {
+			fmt.Fprintf(out, "    required_stratt: %s (this binary: %s)\n", proj.RequiredStratt, version)
+		}
+	}
+}
 
 func newDoctorCmd(b BuildInfo) *cobra.Command {
 	return &cobra.Command{
@@ -29,11 +58,19 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			fmt.Fprintf(out, "built   : %s\n", b.Date)
 			fmt.Fprintln(out)
 
+			// Project config health check.  Doctor is exempt from the
+			// strict gate in PersistentPreRunE (so users can run it on
+			// broken configs to diagnose), so we re-check here and
+			// surface any error inline rather than abort.  Other commands
+			// would have failed at the gate with the same message.
+			proj, cfgErr := config.Load(cwd)
+
 			fmt.Fprintf(out, "Scanning %s\n", cwd)
 			resolver := capability.New(cwd)
 			stacks := resolver.Stacks()
 			if len(stacks) == 0 {
 				fmt.Fprintln(out, "  no recognized stacks found")
+				printConfigStatus(out, cwd, proj, cfgErr, b.Version)
 				return nil
 			}
 			for _, s := range stacks {
@@ -120,6 +157,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 				fmt.Fprintln(out, "      run `stratt setup` (or `git submodule update --init --recursive`).")
 			}
 
+			printConfigStatus(out, cwd, proj, cfgErr, b.Version)
 			return nil
 		},
 	}

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -213,5 +215,100 @@ func TestDoctorShowsBackendMappingForMultiStack(t *testing.T) {
 		if !strings.Contains(body, e) {
 			t.Errorf("doctor output missing %q\n--- full output ---\n%s", e, body)
 		}
+	}
+}
+
+// TestDoctorReportsValidProjectConfig — doctor surfaces a healthy
+// stratt.toml in its "Project config:" section and shows the
+// required_stratt constraint alongside the running binary version.
+func TestDoctorReportsValidProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"),
+		[]byte("required_stratt = \">=0.1.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "1.2.3"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	body := out.String()
+	for _, want := range []string{
+		"Project config:",
+		"loaded stratt.toml",
+		"required_stratt: >=0.1.0",
+		"this binary: 1.2.3",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+// TestDoctorReportsBrokenProjectConfigWithoutFailing — the whole point
+// of doctor is being usable when config is broken.  An unknown field
+// in stratt.toml must NOT abort doctor; it should appear as a "✗"
+// advisory in the Project config section.
+func TestDoctorReportsBrokenProjectConfigWithoutFailing(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"),
+		[]byte("bogus_field = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "1.2.3"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor must not fail on broken config: %v", err)
+	}
+
+	body := out.String()
+	for _, want := range []string{
+		"Project config:",
+		"error loading config",
+		"strict mode",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+// TestDoctorReportsConfigSectionEvenWithNoStacks — the "no recognized
+// stacks" early-return path must still print the Project config
+// section so users in an empty/misconfigured dir still see the
+// diagnosis.
+func TestDoctorReportsConfigSectionEvenWithNoStacks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"),
+		[]byte("bogus_field = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "1.2.3"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	body := out.String()
+	if !strings.Contains(body, "no recognized stacks found") {
+		t.Errorf("expected stack message: %s", body)
+	}
+	if !strings.Contains(body, "Project config:") {
+		t.Errorf("Project config section missing on no-stacks path: %s", body)
 	}
 }

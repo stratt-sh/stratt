@@ -183,6 +183,78 @@ func TestRequiredStrattPinSkippedForVersionAndDoctor(t *testing.T) {
 	}
 }
 
+// TestSelfBypassesBrokenProjectConfig — `self check` and `self update`
+// must run even when stratt.toml is malformed.  These are the commands
+// users reach for when something's broken; gating them on healthy
+// project config would defeat their purpose.
+func TestSelfBypassesBrokenProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	// `bogus_field` triggers DisallowUnknownFields in the strict loader.
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"),
+		[]byte("bogus_field = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	for _, args := range [][]string{
+		{"stratt", "self", "check"},
+		{"stratt", "self", "--help"},
+	} {
+		origStderr := os.Stderr
+		rd, wr, _ := os.Pipe()
+		os.Stderr = wr
+
+		origArgs := os.Args
+		os.Args = args
+
+		exit := Run(BuildInfo{Version: "1.0.0", Commit: "abc", Date: "now"})
+
+		wr.Close()
+		stderr, _ := io.ReadAll(rd)
+		os.Stderr = origStderr
+		os.Args = origArgs
+
+		if exit != 0 {
+			t.Errorf("%v: exit got %d, want 0 (stderr=%q)", args, exit, stderr)
+		}
+		if strings.Contains(string(stderr), "strict mode") {
+			t.Errorf("%v: project-config error leaked through; stderr=%q", args, stderr)
+		}
+	}
+}
+
+// TestNonExemptCommandStillRespectsBrokenConfig — the inverse: a real
+// command like `build` must still fail on a malformed config.  Guards
+// against accidentally widening the exemption list.
+func TestNonExemptCommandStillRespectsBrokenConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"),
+		[]byte("bogus_field = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	origStderr := os.Stderr
+	rd, wr, _ := os.Pipe()
+	os.Stderr = wr
+	t.Cleanup(func() { os.Stderr = origStderr })
+
+	origArgs := os.Args
+	os.Args = []string{"stratt", "build"}
+	t.Cleanup(func() { os.Args = origArgs })
+
+	exit := Run(BuildInfo{Version: "1.0.0", Commit: "abc", Date: "now"})
+	wr.Close()
+	stderr, _ := io.ReadAll(rd)
+
+	if exit == 0 {
+		t.Errorf("expected non-zero exit on malformed config, got 0; stderr=%q", stderr)
+	}
+	if !strings.Contains(string(stderr), "strict mode") {
+		t.Errorf("expected strict-mode error message; got %q", stderr)
+	}
+}
+
 // TestRunBuildsRootCommand confirms the root command tree wires together
 // successfully — picks up if a future change forgets to wire a command.
 func TestRunBuildsRootCommand(t *testing.T) {

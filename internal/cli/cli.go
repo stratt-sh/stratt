@@ -169,12 +169,20 @@ func parseVerbosityString(s string) ui.Level {
 // runRequiredVersionCheck loads project config, enforces
 // required_stratt (R2.3.12), and (in the background) opportunistically
 // pings the update notifier (R4.12).  Returns nil if either no config
-// exists or the constraint passes.  Skipped for `version` and `doctor`
-// so users can introspect a repo whose pin they can't yet satisfy.
+// exists or the constraint passes.  Skipped for diagnostic and
+// self-management commands (`version`, `doctor`, `help`, `self`) so
+// users can introspect — and update — their binary regardless of the
+// project config state.  Without the `self` exemption, a malformed
+// stratt.toml would block `stratt self check`/`self update`, which is
+// exactly when the user most needs them.
 func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
-	switch cmd.Name() {
-	case "version", "doctor", "help":
-		return nil
+	// `self` has subcommands (check, update, ...); cmd.Name() reports
+	// the deepest command, so walk up to recognize the family.
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "version", "doctor", "help", "self":
+			return nil
+		}
 	}
 
 	cwd, err := os.Getwd()
