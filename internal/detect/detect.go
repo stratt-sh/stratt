@@ -34,6 +34,7 @@ type detector func(root string) Stack
 // only — it has no effect on which detectors run.
 var detectors = []detector{
 	detectGo,
+	detectNodeNPM,
 	detectPythonUV,
 	detectPHP,
 	detectDocker,
@@ -64,6 +65,13 @@ func Scan(root string) Report {
 func detectGo(root string) Stack {
 	if exists(filepath.Join(root, "go.mod")) {
 		return Stack{Name: "go", Signal: "go.mod"}
+	}
+	return Stack{}
+}
+
+func detectNodeNPM(root string) Stack {
+	if exists(filepath.Join(root, "package.json")) && exists(filepath.Join(root, "package-lock.json")) {
+		return Stack{Name: "node+npm", Signal: "package.json + package-lock.json"}
 	}
 	return Stack{}
 }

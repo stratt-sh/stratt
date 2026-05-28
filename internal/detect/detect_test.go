@@ -31,6 +31,21 @@ func TestDetectGo(t *testing.T) {
 	}
 }
 
+func TestDetectNodeNPM(t *testing.T) {
+	dir := t.TempDir()
+	if got := detectNodeNPM(dir); got.Name != "" {
+		t.Fatalf("empty repo should not match: got %+v", got)
+	}
+	touch(t, dir, "package.json")
+	if got := detectNodeNPM(dir); got.Name != "" {
+		t.Fatalf("package.json without package-lock.json should not match: got %+v", got)
+	}
+	touch(t, dir, "package-lock.json")
+	if got := detectNodeNPM(dir); got.Name != "node+npm" || got.Signal != "package.json + package-lock.json" {
+		t.Fatalf("package.json + package-lock.json: got %+v", got)
+	}
+}
+
 func TestDetectPythonUV(t *testing.T) {
 	dir := t.TempDir()
 

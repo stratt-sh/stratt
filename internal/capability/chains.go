@@ -40,6 +40,8 @@ func (r *Resolver) resolveBuild() Engine {
 		// ldflags are injected by the runner once the bump engine knows the
 		// project version — for now this is a vanilla build.
 		return &execEngine{tool: "go", argv: []string{"build", "./..."}, display: "go build ./..."}
+	case r.HasStack("node+npm"):
+		return &execEngine{tool: "npm", argv: []string{"run", "build"}}
 	case r.HasStack("php"):
 		return &execEngine{tool: "composer", argv: []string{"install"}}
 	case r.HasStack("docker"):
@@ -63,6 +65,8 @@ func (r *Resolver) resolveTest() Engine {
 		return &execEngine{tool: "uv", argv: append([]string{"run"}, append(uvAllFlags, "pytest")...)}
 	case r.HasStack("go"):
 		return &execEngine{tool: "go", argv: []string{"test", "./..."}}
+	case r.HasStack("node+npm"):
+		return &execEngine{tool: "npm", argv: []string{"test"}}
 	case r.HasStack("php"):
 		// composer scripts are project-specific; the safe default is
 		// `composer test` which fails clearly if no script is defined.
@@ -167,6 +171,8 @@ func (r *Resolver) languageLintEngine(fix bool) Engine {
 			argv = append(argv, "--fix")
 		}
 		return &execEngine{tool: "ansible-lint", argv: argv}
+	case r.HasStack("node+npm"):
+		return &execEngine{tool: "npm", argv: []string{"run", "lint"}}
 	case r.HasStack("python+uv"):
 		argv := append([]string{"run"}, uvAllFlags...)
 		argv = append(argv, "ruff", "check")
@@ -205,6 +211,8 @@ func (r *Resolver) resolveFormat() Engine {
 		return &execEngine{tool: "ansible-lint", argv: []string{"--fix"}}
 	}
 	switch {
+	case r.HasStack("node+npm"):
+		return &execEngine{tool: "npm", argv: []string{"run", "format"}}
 	case r.HasStack("python+uv"):
 		return &execEngine{tool: "uv", argv: append([]string{"run"}, append(uvAllFlags, "ruff", "format")...)}
 	case r.HasStack("go"):
@@ -232,6 +240,8 @@ func (r *Resolver) resolveSetup() Engine {
 			line:    "uv self update; uv sync --all-extras --all-groups",
 			display: "uv self update (best-effort) && uv sync --all-extras --all-groups",
 		}
+	case r.HasStack("node+npm"):
+		inner = &execEngine{tool: "npm", argv: []string{"ci"}}
 	case r.HasStack("go"):
 		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
@@ -276,6 +286,8 @@ func (r *Resolver) resolveSync() Engine {
 	switch {
 	case r.HasStack("python+uv"):
 		inner = &execEngine{tool: "uv", argv: append([]string{"sync"}, uvAllFlags...)}
+	case r.HasStack("node+npm"):
+		inner = &execEngine{tool: "npm", argv: []string{"ci"}}
 	case r.HasStack("go"):
 		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
@@ -296,6 +308,8 @@ func (r *Resolver) resolveLock() Engine {
 	switch {
 	case r.HasStack("python+uv"):
 		return &execEngine{tool: "uv", argv: []string{"lock"}}
+	case r.HasStack("node+npm"):
+		return &execEngine{tool: "npm", argv: []string{"install"}}
 	case r.HasStack("go"):
 		return &execEngine{tool: "go", argv: []string{"mod", "tidy"}}
 	case r.HasStack("php"):
@@ -315,6 +329,8 @@ func (r *Resolver) resolveUpgrade() Engine {
 			line:    "uv self update; uv lock --upgrade && uv sync --all-extras --all-groups",
 			display: "uv self update (best-effort) && uv lock --upgrade && uv sync --all-extras --all-groups",
 		}
+	case r.HasStack("node+npm"):
+		return &shellEngine{line: "npm update && npm install", display: "npm update && npm install"}
 	case r.HasStack("go"):
 		return &shellEngine{line: "go get -u ./... && go mod tidy", display: "go get -u ./... && go mod tidy"}
 	case r.HasStack("php"):
@@ -364,7 +380,7 @@ func (r *Resolver) resolveRelease() Engine {
 			display:     "native bump engine (reads galaxy.yml version)",
 			delegateCmd: "stratt release",
 		}
-	case r.HasStack("go") || r.HasStack("python+uv") || r.HasStack("php"):
+	case r.HasStack("go") || r.HasStack("node+npm") || r.HasStack("python+uv") || r.HasStack("php"):
 		return &delegateEngine{
 			display:     "tag-only release",
 			delegateCmd: "stratt release",
