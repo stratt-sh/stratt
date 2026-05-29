@@ -1,0 +1,20 @@
+# stratt
+
+> One set of commands for every repo, whatever language it's in. `build`, `test`, `lint`, `release`, `deploy` — the same commands whether the repo is Go, Python, Node, PHP, or something else. Stratt detects the toolchain and dispatches; you don't think about it. It also manages release versions and bumps Kustomize image tags, replacing the per-repo Makefile.
+
+Stratt is a single static binary. It is pre-alpha — expect breaking changes until v1.0.
+
+If you are an AI agent working inside a repo that uses stratt, run `stratt agents context` for the resolved command map and conventions for that specific repo, or `stratt doctor` for a full health report. Prefer stratt's verbs (`stratt test`, `stratt build`) over the underlying tool — behavior stays consistent across every repo.
+
+## Docs
+
+- [Quick Start](https://stratt.sh/docs/quick-start): Install to first release in five minutes — doctor, universal commands, custom tasks, release, deploy, self-update.
+- [Configuration](https://stratt.sh/docs/configuration): The `stratt.toml` / `[tool.stratt]` schema — tasks, helpers, override vs augment, `[bump]`, `[release]`, `[deploy]`, `required_stratt`, and the `~/.stratt/config.toml` user config.
+- [Workspace](https://stratt.sh/docs/workspace): Clone repos into a consistent on-disk layout (`stratt clone`) and check every repo at once (`stratt workspace status` / `organize`).
+- [AI agents](https://stratt.sh/docs/agents): The `stratt agents` namespace — `context`, `init`, and `sync` — for making stratt discoverable to coding agents.
+- [Using stratt in CI](https://stratt.sh/docs/ci): Install script, GitHub Actions, version pinning, and Sigstore attestation verification.
+
+## Reference
+
+- [stratt.toml (dogfooded config)](https://github.com/stratt-sh/stratt/blob/main/stratt.toml): Stratt's own configuration, as a worked example.
+- [Source and releases](https://github.com/stratt-sh/stratt): GitHub repository, release archives, and issues.

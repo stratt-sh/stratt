@@ -143,19 +143,20 @@ Use `--no-push` to do everything locally and inspect before pushing manually.
 
 ## 6. Deploy
 
-Bump a Kustomize image tag without touching `kustomize` CLI or `sed`:
+Bump a Kustomize image tag without touching the `kustomize` CLI or `sed`:
 
 ```sh
 stratt deploy prod 1.14.1
 ```
 
-That edits `deploy/overlays/prod/kustomization.yaml` in place (preserving comments and formatting), prints the change, and stops. Add `--commit` to stage and commit in one step:
+That edits `deploy/overlays/prod/kustomization.yaml` in place (preserving comments and formatting), prints the change, then commits and pushes after a confirmation prompt. Add `--yes` to skip the prompt. To stop short of pushing:
 
 ```sh
-stratt deploy prod 1.14.1 --commit --yes
+stratt deploy prod 1.14.1 --no-push     # commit locally, push later
+stratt deploy prod 1.14.1 --no-commit   # edit the file only, no git
 ```
 
-For multi-image overlays, pass `--image=<name>` to disambiguate.
+For multi-image overlays, pass `--image=<name>` to disambiguate. `stratt deploy envs` lists the available environments and their current tags.
 
 ## 7. Self-update
 
@@ -176,4 +177,4 @@ Updates are verified against Sigstore artifact attestations. The trust anchor is
 - `stratt help <command>` shows per-command help.
 - `stratt doctor` answers "what would stratt do here?" before you commit.
 
-For the full configuration reference, browse [`stratt.toml` on the repo](https://github.com/stratt-sh/stratt/blob/main/stratt.toml) — stratt dogfoods its own config there.
+For the full schema — tasks, helpers, bump, release, deploy, and user config — see [Configuration](/docs/configuration). To manage many repos at once, see [Workspace](/docs/workspace).
