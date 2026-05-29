@@ -39,7 +39,8 @@ func TestPromptLayoutChoices(t *testing.T) {
 		{"\n", "{host}/{org}/{repo}"},
 		{"1\n", "{host}/{org}/{repo}"},
 		{"2\n", "{org}/{repo}"},
-		{"3\nsrc/{org}/{repo}\n", "src/{org}/{repo}"},
+		{"3\n", "{repo}"},
+		{"4\nsrc/{org}/{repo}\n", "src/{org}/{repo}"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
@@ -67,7 +68,7 @@ func TestPromptLayoutRejectsBadChoice(t *testing.T) {
 	if got != "{org}/{repo}" {
 		t.Errorf("got %q", got)
 	}
-	if !strings.Contains(out.String(), "please enter 1, 2, or 3") {
+	if !strings.Contains(out.String(), "please enter a number from 1 to 4") {
 		t.Errorf("expected reprompt; got:\n%s", out.String())
 	}
 }

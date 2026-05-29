@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -188,6 +189,7 @@ var layoutChoices = []struct {
 }{
 	{"host / org / repo", "{host}/{org}/{repo}", "~/code/github.com/stratt-sh/stratt"},
 	{"org / repo", "{org}/{repo}", "~/code/stratt-sh/stratt"},
+	{"repo (flat)", "{repo}", "~/code/stratt"},
 }
 
 func promptLayout(out io.Writer, in *bufio.Reader) (string, error) {
@@ -195,7 +197,8 @@ func promptLayout(out io.Writer, in *bufio.Reader) (string, error) {
 	for i, c := range layoutChoices {
 		fmt.Fprintf(out, "  %d) %-20s  e.g. %s\n", i+1, c.label, c.example)
 	}
-	fmt.Fprintf(out, "  %d) custom (enter a template)\n", len(layoutChoices)+1)
+	customChoice := len(layoutChoices) + 1
+	fmt.Fprintf(out, "  %d) custom (enter a template)\n", customChoice)
 
 	for {
 		fmt.Fprintf(out, "Choose [1]: ")
@@ -207,16 +210,15 @@ func promptLayout(out io.Writer, in *bufio.Reader) (string, error) {
 		if s == "" {
 			return layoutChoices[0].layout, nil
 		}
-		switch s {
-		case "1":
-			return layoutChoices[0].layout, nil
-		case "2":
-			return layoutChoices[1].layout, nil
-		case "3":
-			return promptCustomLayout(out, in)
-		default:
-			fmt.Fprintf(out, "  (please enter 1, 2, or 3)\n")
+		if n, err := strconv.Atoi(s); err == nil {
+			if n >= 1 && n <= len(layoutChoices) {
+				return layoutChoices[n-1].layout, nil
+			}
+			if n == customChoice {
+				return promptCustomLayout(out, in)
+			}
 		}
+		fmt.Fprintf(out, "  (please enter a number from 1 to %d)\n", customChoice)
 	}
 }
 
