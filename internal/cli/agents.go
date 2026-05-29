@@ -102,7 +102,7 @@ func renderRepoContext(out interface{ Write([]byte) (int, error) }, st *ui.Style
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, rc := range resolveCommandList(resolver, reg) {
 		if rc.Backend == "" {
-			fmt.Fprintf(tw, "    %s\t→ —\t%s\n", rc.Command, st.Faint("(no engine matched)"))
+			fmt.Fprintf(tw, "    %s\t→ —\t%s\n", rc.Command, st.Yellow("(no engine matched)"))
 			continue
 		}
 		marker := rc.Marker

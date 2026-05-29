@@ -64,15 +64,19 @@ func styleFrom(ctx context.Context) *ui.Style {
 // `--help` (which bypasses the pre-run hooks), and error output alike.
 func Run(b BuildInfo) int {
 	root := newRootCmd(b)
+	mode := resolveColorMode(colorFlagFromArgs(os.Args[1:]))
 	pad := term.IsTerminal(int(os.Stdout.Fd()))
 	if pad {
-		st := ui.NewStyle(os.Stdout, os.Stderr, resolveColorMode(colorFlagFromArgs(os.Args[1:])), ui.Normal)
+		st := ui.NewStyle(os.Stdout, os.Stderr, mode, ui.Normal)
 		fmt.Fprintln(os.Stdout) // blank line above the header, separating from the prompt
 		printHeader(os.Stdout, st, headerLabel(root), terminalWidth())
 	}
 	err := root.Execute()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		// Color is gated on stderr (where the error goes), not stdout, so a
+		// redirected stdout with an interactive stderr still reddens it.
+		errStyle := ui.NewStyle(os.Stderr, os.Stderr, mode, ui.Normal)
+		fmt.Fprint(os.Stderr, errStyle.Error(err.Error()))
 	}
 	if pad {
 		fmt.Fprintln(os.Stdout)

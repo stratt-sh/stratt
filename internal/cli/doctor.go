@@ -206,7 +206,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			for _, rc := range resolveCommandList(resolver, reg) {
 				if rc.Backend == "" {
-					fmt.Fprintf(tw, "  %s\t→ —\t%s\n", st.Bold(rc.Command), st.Faint("(no engine matched)"))
+					fmt.Fprintf(tw, "  %s\t→ —\t%s\n", st.Bold(rc.Command), st.Yellow("(no engine matched)"))
 					continue
 				}
 				for _, name := range rc.Missing {
