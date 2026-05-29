@@ -53,6 +53,41 @@ func renderCommandRow(res capability.Resolution, reg *runner.Registry) (rendered
 	return res.Engine.Name(), marker
 }
 
+// resolvedCommand is one row of the resolved-command map: the universal
+// verb, the rendered backend ("" when no engine matched), the trailing
+// marker, and any missing tool binaries.  Shared by `doctor` and
+// `agents context` so both render the same resolution from one source.
+type resolvedCommand struct {
+	Command string
+	Backend string   // rendered "→" body; "" means no engine matched
+	Marker  string   // e.g. "[tool not on PATH]"
+	Missing []string // missing tool binary names (for install hints)
+}
+
+// resolveCommandList builds the resolved-command map for the repo.  reg
+// may be nil (config/graph error) — renderCommandRow falls back to the
+// resolver-only view in that case.
+func resolveCommandList(resolver *capability.Resolver, reg *runner.Registry) []resolvedCommand {
+	var out []resolvedCommand
+	for _, res := range resolver.ResolveAll() {
+		rendered, marker := renderCommandRow(res, reg)
+		rc := resolvedCommand{Command: res.Command, Backend: rendered, Marker: marker}
+		// Collect missing-tool names only when showing the resolver's
+		// engine — user-override shell commands have no known binary.
+		if marker == "[tool not on PATH]" {
+			if mt, ok := res.Engine.(capability.MultiTooler); ok {
+				rc.Missing = mt.Tools()
+			} else if t, ok := res.Engine.(capability.Tooler); ok {
+				if n := t.Tool(); n != "" {
+					rc.Missing = []string{n}
+				}
+			}
+		}
+		out = append(out, rc)
+	}
+	return out
+}
+
 // renderUserBody renders an overridden task's body for doctor.  Shell
 // runs become `sh: cmd1; cmd2`; composites become `tasks: a + b`.
 func renderUserBody(t *runner.Task) string {
@@ -169,36 +204,18 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			seen := map[string]bool{}
 
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			for _, res := range resolver.ResolveAll() {
-				// Try the registry first so user overrides win.  Falls
-				// back to the resolver view when no registry is
-				// available (config error, graph error, or just no
-				// override for this command).
-				rendered, marker := renderCommandRow(res, reg)
-				if rendered == "" {
-					fmt.Fprintf(tw, "  %s\t→ —\t(no engine matched)\n", res.Command)
+			for _, rc := range resolveCommandList(resolver, reg) {
+				if rc.Backend == "" {
+					fmt.Fprintf(tw, "  %s\t→ —\t(no engine matched)\n", rc.Command)
 					continue
 				}
-				// Collect missing-tool names only when we're showing
-				// the resolver's engine — user-override shell commands
-				// don't have a known binary to lint against.
-				if marker == "[tool not on PATH]" {
-					var names []string
-					if mt, ok := res.Engine.(capability.MultiTooler); ok {
-						names = mt.Tools()
-					} else if t, ok := res.Engine.(capability.Tooler); ok {
-						if n := t.Tool(); n != "" {
-							names = []string{n}
-						}
-					}
-					for _, name := range names {
-						if name != "" && !seen[name] {
-							seen[name] = true
-							missingTools = append(missingTools, name)
-						}
+				for _, name := range rc.Missing {
+					if name != "" && !seen[name] {
+						seen[name] = true
+						missingTools = append(missingTools, name)
 					}
 				}
-				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", res.Command, rendered, marker)
+				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", rc.Command, rc.Backend, rc.Marker)
 			}
 			tw.Flush()
 

@@ -73,7 +73,10 @@ and provides a unified CLI for build, test, release, and deploy.
 
 It replaces Makefiles with a single, statically-linked binary that handles
 the universal targets (build/test/lint/release) plus Kustomize image bumps
-for Kubernetes deploys.`,
+for Kubernetes deploys.
+
+Agents: run ` + "`stratt agents context`" + ` for an orientation plus the resolved
+command map for this repo, or ` + "`stratt doctor`" + ` for a full health report.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// PersistentPreRunE runs before every subcommand.  We use it to
@@ -115,6 +118,8 @@ for Kubernetes deploys.`,
 	root.AddCommand(newSelfCmd(b))
 	root.AddCommand(newConfigCmd(b))
 	root.AddCommand(newCloneCmd())
+	root.AddCommand(newWorkspaceCmd())
+	root.AddCommand(newAgentsCmd(b))
 
 	return root
 }
@@ -181,7 +186,7 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 	// the deepest command, so walk up to recognize the family.
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "version", "doctor", "help", "self", "clone":
+		case "version", "doctor", "help", "self", "clone", "agents":
 			return nil
 		}
 	}

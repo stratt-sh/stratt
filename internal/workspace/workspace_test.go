@@ -121,3 +121,69 @@ func TestResolveEmptyRoot(t *testing.T) {
 		t.Error("expected error for empty root")
 	}
 }
+
+func TestFindRepos(t *testing.T) {
+	root := t.TempDir()
+	// A normal checkout (.git dir), a worktree-style checkout (.git file),
+	// a nested checkout inside the first repo, and a plain non-repo dir.
+	mkRepoDir := func(rel string) string {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Join(p, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	mkRepoFile := func(rel string) string {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	a := mkRepoDir("github.com/org/a")
+	b := mkRepoFile("github.com/org/b")
+	// Nested checkout inside a's working tree must NOT be reported.
+	mkRepoDir("github.com/org/a/vendor/nested")
+	// Plain directory with no .git is not a repo.
+	if err := os.MkdirAll(filepath.Join(root, "github.com/org/notarepo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := FindRepos(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{a, b}
+	if len(got) != len(want) {
+		t.Fatalf("FindRepos = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("FindRepos[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFindReposRootItselfIsRepo(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := FindRepos(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != root {
+		t.Errorf("FindRepos on a repo root = %v, want [%q]", got, root)
+	}
+}
+
+func TestFindReposMissingRoot(t *testing.T) {
+	if _, err := FindRepos(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
+		t.Error("expected error for missing root")
+	}
+}

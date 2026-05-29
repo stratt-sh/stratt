@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -91,6 +92,50 @@ func (r *Repo) hasStagedChanges(ctx context.Context) (bool, error) {
 // Tag creates an annotated tag pointing at HEAD.
 func (r *Repo) Tag(ctx context.Context, name, message string) error {
 	return r.run(ctx, "tag", "-a", name, "-m", message)
+}
+
+// AheadCount reports how many commits the current branch is ahead of
+// its configured upstream.  hasUpstream is false when the branch has no
+// tracking branch (or HEAD is unborn), in which case ahead is 0 — that
+// is not treated as an error, since plenty of branches legitimately
+// have no upstream.
+func (r *Repo) AheadCount(ctx context.Context) (ahead int, hasUpstream bool, err error) {
+	// Probe for an upstream first.  `@{u}` errors when none is set;
+	// we read that as "no upstream", not a failure.
+	if _, e := r.captureOutput(ctx, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); e != nil {
+		return 0, false, nil
+	}
+	out, err := r.captureOutput(ctx, "rev-list", "--count", "@{u}..HEAD")
+	if err != nil {
+		return 0, false, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, true, fmt.Errorf("parse ahead count %q: %w", out, err)
+	}
+	return n, true, nil
+}
+
+// CommitCount returns the number of commits reachable from HEAD.  An
+// unborn HEAD (a repo with no commits yet) reports 0 with no error.
+func (r *Repo) CommitCount(ctx context.Context) (int, error) {
+	out, err := r.captureOutput(ctx, "rev-list", "--count", "HEAD")
+	if err != nil {
+		// Unborn HEAD / no commits: not an error for our purposes.
+		return 0, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("parse commit count %q: %w", out, err)
+	}
+	return n, nil
+}
+
+// Fetch refreshes remote-tracking refs from all remotes.  It changes no
+// local working state — only the remote-tracking refs — so callers can
+// treat it as read-only with respect to the user's work.
+func (r *Repo) Fetch(ctx context.Context) error {
+	return r.run(ctx, "fetch", "--quiet", "--all")
 }
 
 // PushBranch pushes the named branch to remote (typically "origin").

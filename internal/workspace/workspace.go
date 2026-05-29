@@ -9,9 +9,11 @@ package workspace
 
 import (
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -144,22 +146,83 @@ func Render(layout string, r Remote) (string, error) {
 // root, layout, and remote.  `~` and `$VAR` in root are expanded.  The
 // returned path is cleaned but not created; callers do mkdir.
 func Resolve(root, layout string, r Remote) (string, error) {
-	if root == "" {
-		return "", fmt.Errorf("workspace root is unset")
+	base, err := ExpandRoot(root)
+	if err != nil {
+		return "", err
 	}
 	rendered, err := Render(layout, r)
 	if err != nil {
 		return "", err
 	}
+	return filepath.Abs(filepath.Join(base, rendered))
+}
+
+// ExpandRoot expands `$VAR` and a leading `~` in a workspace root and
+// returns an absolute, cleaned path.  An empty root is an error so
+// callers fail loudly rather than scanning the current directory.
+func ExpandRoot(root string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("workspace root is unset")
+	}
 	expanded, err := expandHome(os.ExpandEnv(root))
 	if err != nil {
 		return "", err
 	}
-	abs, err := filepath.Abs(filepath.Join(expanded, rendered))
+	return filepath.Abs(expanded)
+}
+
+// FindRepos walks the workspace root and returns the absolute paths of
+// every git repository beneath it — any directory containing a `.git`
+// entry (a directory for a normal checkout, or a file for a worktree or
+// submodule).  Results are sorted.
+//
+// Once a repository is found, FindRepos does not descend into it: nested
+// checkouts inside a working tree are considered part of that repo, and
+// the `.git` directory itself is never traversed.  Unreadable
+// subdirectories are skipped rather than aborting the whole walk.
+func FindRepos(root string) ([]string, error) {
+	base, err := ExpandRoot(root)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return abs, nil
+	info, err := os.Stat(base)
+	if err != nil {
+		return nil, fmt.Errorf("workspace root %s: %w", base, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("workspace root %s is not a directory", base)
+	}
+
+	var repos []string
+	walkErr := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// Permission error or vanished entry: skip this subtree but
+			// keep scanning the rest of the workspace.
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if isRepo(path) {
+			repos = append(repos, path)
+			return fs.SkipDir // don't descend into the repo's working tree
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	sort.Strings(repos)
+	return repos, nil
+}
+
+// isRepo reports whether dir contains a `.git` entry of any kind.
+func isRepo(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 func expandHome(p string) (string, error) {

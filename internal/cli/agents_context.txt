@@ -1,0 +1,42 @@
+stratt — agent orientation
+==========================
+
+WHAT IT IS
+  stratt is an opinionated replacement for `make` that abstracts common
+  SDLC tasks into one set of commands that work the same regardless of a
+  project's language or platform. Learn it once; it works everywhere.
+
+THE ONE RULE
+  Prefer stratt's verbs over the underlying tool. Run `stratt test`, not
+  `pytest`; `stratt build`, not `cargo build`. Behavior stays consistent
+  across every repo that uses stratt, and stratt picks the right backend.
+
+THE VERBS
+  build     compile / produce artifacts
+  test      run the test suite
+  lint      static checks (add --check for CI: `stratt lint --check`)
+  format    apply formatting
+  style     format + lint together
+  release   patch | minor | major — bump version, commit, tag, push
+  deploy    kustomize image bump for Kubernetes
+  setup     first-time project setup
+  sync      install dependencies from the lockfile (alias: install)
+  lock      update the lockfile from the manifest
+  upgrade   upgrade dependencies to latest compatible versions
+  all       run the full verification suite (sync, format, lint, test, docs)
+  run <t>   run a user-defined task from stratt.toml
+
+DRIVING IT NON-INTERACTIVELY (for agents)
+  --ci         no prompts; fail loudly on missing decisions
+  -y / --yes   skip confirmations
+  -q           quiet output
+  --no-push    (release) commit and tag locally without pushing
+  Exit codes:  0 ok · 1 user error · 2 system error
+
+SEE WHAT RUNS HERE
+  `stratt doctor` shows the resolved backend for each verb in this repo,
+  plus detected stacks and missing tools. The resolved map for the current
+  repo is printed below.
+
+LEARN MORE
+  https://stratt.sh
