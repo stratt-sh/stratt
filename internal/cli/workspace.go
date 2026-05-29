@@ -22,6 +22,7 @@ func newWorkspaceCmd() *cobra.Command {
 configured in ~/.stratt/config.toml (the same root ` + "`stratt clone`" + ` uses).`,
 	}
 	cmd.AddCommand(newWorkspaceStatusCmd())
+	cmd.AddCommand(newWorkspaceOrganizeCmd())
 	return cmd
 }
 
@@ -60,12 +61,11 @@ func runWorkspaceStatus(cmd *cobra.Command, fetch bool) error {
 		return err
 	}
 	if usr == nil || usr.Workspace == nil || usr.Workspace.Root == "" {
-		cfgPath, _ := config.UserConfigPath()
-		return fmt.Errorf(
-			"no [workspace] root configured in %s\n"+
-				"set one with:\n  [workspace]\n  root = \"~/code\"\n"+
-				"or run `stratt clone <url>` to set it up interactively",
-			cfgPath)
+		ws, err := setupWorkspaceInteractive(cmd)
+		if err != nil {
+			return err
+		}
+		usr = &config.User{Workspace: ws}
 	}
 
 	base, err := workspace.ExpandRoot(usr.Workspace.Root)

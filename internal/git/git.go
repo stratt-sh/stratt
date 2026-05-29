@@ -94,6 +94,16 @@ func (r *Repo) Tag(ctx context.Context, name, message string) error {
 	return r.run(ctx, "tag", "-a", name, "-m", message)
 }
 
+// RemoteURL returns the configured URL for the named remote (typically
+// "origin").  Returns an error when the remote does not exist.
+func (r *Repo) RemoteURL(ctx context.Context, remote string) (string, error) {
+	out, err := r.captureOutput(ctx, "remote", "get-url", remote)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // AheadCount reports how many commits the current branch is ahead of
 // its configured upstream.  hasUpstream is false when the branch has no
 // tracking branch (or HEAD is unborn), in which case ahead is 0 — that

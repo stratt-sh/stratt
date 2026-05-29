@@ -138,8 +138,9 @@ func setupWorkspaceInteractive(cmd *cobra.Command) (*config.UserWorkspace, error
 	cfgPath, _ := config.UserConfigPath()
 	if !stdinIsTerminal(cmd) {
 		return nil, fmt.Errorf(
-			"stratt clone needs [workspace] root in %s\n"+
-				"example:\n  [workspace]\n  root = \"~/code\"\n  layout = \"{host}/{org}/{repo}\"",
+			"no [workspace] root configured in %s\n"+
+				"add one (no terminal available to prompt):\n"+
+				"  [workspace]\n  root = \"~/code\"\n  layout = \"{host}/{org}/{repo}\"",
 			cfgPath,
 		)
 	}
