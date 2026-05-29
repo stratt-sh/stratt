@@ -1,7 +1,9 @@
 // Command stratt is the operations chief for your repo.
 //
-// stratt is a polyglot task runner that detects your project's stack
-// and provides a unified CLI for build, test, release, and deploy.
+// One set of commands for every repo, whatever language it's in: build,
+// test, lint, release, and deploy run the same whether the repo is Go,
+// Python, Node, or PHP. Stratt detects the toolchain and dispatches,
+// replacing the per-repo Makefile.
 //
 // See README.md for the full pitch.
 package main

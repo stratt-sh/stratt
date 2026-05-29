@@ -2,9 +2,10 @@ stratt — agent orientation
 ==========================
 
 WHAT IT IS
-  stratt is an opinionated replacement for `make` that abstracts common
-  SDLC tasks into one set of commands that work the same regardless of a
-  project's language or platform. Learn it once; it works everywhere.
+  stratt gives every repo one set of commands — build, test, lint,
+  release, deploy — that work the same whatever the language. Stratt
+  detects the toolchain and dispatches, replacing the per-repo Makefile.
+  Learn it once; it works everywhere.
 
 THE ONE RULE
   Prefer stratt's verbs over the underlying tool. Run `stratt test`, not

@@ -11,6 +11,7 @@ import (
 	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/runner"
+	"github.com/stratt-sh/stratt/internal/ui"
 )
 
 // renderCommandRow returns the rendered "→ ..." cell and the trailing
@@ -122,21 +123,21 @@ func augmentSuffix(t *runner.Task) string {
 //
 // Intentionally never returns an error: doctor must stay usable when
 // the config is broken, so config errors are *displayed*, not raised.
-func printConfigStatus(out interface{ Write([]byte) (int, error) }, cwd string, proj *config.Project, cfgErr error, version string) {
+func printConfigStatus(out interface{ Write([]byte) (int, error) }, st *ui.Style, cwd string, proj *config.Project, cfgErr error, version string) {
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Project config:")
+	fmt.Fprintln(out, st.Bold("Project config:"))
 	switch {
 	case cfgErr != nil:
-		fmt.Fprintf(out, "  ✗ error loading config: %v\n", cfgErr)
+		fmt.Fprintf(out, "  %s error loading config: %v\n", st.Red("✗"), cfgErr)
 		fmt.Fprintln(out, "    every command except `version`, `doctor`, `help`, and `self ...` will refuse to run until this is fixed.")
 	case proj == nil || proj.Source == "":
-		fmt.Fprintln(out, "  ✓ no project config (stratt.toml / [tool.stratt] in pyproject.toml) — zero-config mode")
+		fmt.Fprintf(out, "  %s no project config (stratt.toml / [tool.stratt] in pyproject.toml) — zero-config mode\n", st.Green("✓"))
 	default:
 		rel, err := filepath.Rel(cwd, proj.Source)
 		if err != nil {
 			rel = proj.Source
 		}
-		fmt.Fprintf(out, "  ✓ loaded %s\n", rel)
+		fmt.Fprintf(out, "  %s loaded %s\n", st.Green("✓"), rel)
 		if proj.RequiredStratt != "" {
 			fmt.Fprintf(out, "    required_stratt: %s (this binary: %s)\n", proj.RequiredStratt, version)
 		}
@@ -150,14 +151,13 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 		Short:   "Report detected stacks, resolved command backends, and binary metadata",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			st := styleFrom(cmd.Context())
 
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprintln(out, "stratt doctor")
-			fmt.Fprintln(out, "─────────────")
 			fmt.Fprintf(out, "version : %s\n", b.Version)
 			fmt.Fprintf(out, "commit  : %s\n", b.Commit)
 			fmt.Fprintf(out, "built   : %s\n", b.Date)
@@ -175,11 +175,11 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			stacks := resolver.Stacks()
 			if len(stacks) == 0 {
 				fmt.Fprintln(out, "  no recognized stacks found")
-				printConfigStatus(out, cwd, proj, cfgErr, b.Version)
+				printConfigStatus(out, st, cwd, proj, cfgErr, b.Version)
 				return nil
 			}
 			for _, s := range stacks {
-				fmt.Fprintf(out, "  ✓ %s (via %s)\n", s.Name, s.Signal)
+				fmt.Fprintf(out, "  %s %s (via %s)\n", st.Green("✓"), s.Name, s.Signal)
 			}
 
 			// Build the merged task registry so we can show the
@@ -194,7 +194,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			}
 
 			fmt.Fprintln(out)
-			fmt.Fprintln(out, "Resolved commands:")
+			fmt.Fprintln(out, st.Bold("Resolved commands:"))
 
 			// Track which tools are missing so we can surface install
 			// hints below the table — keeps the table tight while still
@@ -206,7 +206,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			for _, rc := range resolveCommandList(resolver, reg) {
 				if rc.Backend == "" {
-					fmt.Fprintf(tw, "  %s\t→ —\t(no engine matched)\n", rc.Command)
+					fmt.Fprintf(tw, "  %s\t→ —\t%s\n", st.Bold(rc.Command), st.Faint("(no engine matched)"))
 					continue
 				}
 				for _, name := range rc.Missing {
@@ -215,19 +215,23 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 						missingTools = append(missingTools, name)
 					}
 				}
-				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", rc.Command, rc.Backend, rc.Marker)
+				marker := rc.Marker
+				if marker != "" {
+					marker = st.Faint(marker)
+				}
+				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", st.Bold(rc.Command), rc.Backend, marker)
 			}
 			tw.Flush()
 
 			if regErr != nil {
 				fmt.Fprintln(out)
-				fmt.Fprintf(out, "Note: task registry could not be built (%v) —\n", regErr)
+				fmt.Fprintf(out, "%s task registry could not be built (%v) —\n", st.Yellow("Note:"), regErr)
 				fmt.Fprintln(out, "      the table above shows the resolver's built-in choice; runtime would error before executing.")
 			}
 
 			if len(missingTools) > 0 {
 				fmt.Fprintln(out)
-				fmt.Fprintln(out, "Missing tools:")
+				fmt.Fprintln(out, st.Bold("Missing tools:"))
 				mtw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 				for _, t := range missingTools {
 					hint := InstallHint(t)
@@ -248,7 +252,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			// haven't installed it — but worth surfacing once.
 			if wf, tool := resolver.ActionlintAvailable(); wf && !tool {
 				fmt.Fprintln(out)
-				fmt.Fprintln(out, "Note: workflows under .github/workflows/ are present but `actionlint` isn't on PATH —")
+				fmt.Fprintf(out, "%s workflows under .github/workflows/ are present but `actionlint` isn't on PATH —\n", st.Yellow("Note:"))
 				fmt.Fprintln(out, "      install it (`brew install actionlint`) and stratt will lint them as part of `stratt lint`.")
 			}
 
@@ -257,11 +261,11 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			// before it manifests as a cryptic build error.
 			if declared, uninit := resolver.SubmoduleStatus(); uninit > 0 {
 				fmt.Fprintln(out)
-				fmt.Fprintf(out, "Note: %d of %d git submodule(s) are not checked out —\n", uninit, declared)
+				fmt.Fprintf(out, "%s %d of %d git submodule(s) are not checked out —\n", st.Yellow("Note:"), uninit, declared)
 				fmt.Fprintln(out, "      run `stratt setup` (or `git submodule update --init --recursive`).")
 			}
 
-			printConfigStatus(out, cwd, proj, cfgErr, b.Version)
+			printConfigStatus(out, st, cwd, proj, cfgErr, b.Version)
 			return nil
 		},
 	}

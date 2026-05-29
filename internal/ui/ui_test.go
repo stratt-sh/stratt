@@ -60,14 +60,36 @@ func TestStyleAutoDefaultsOffForNonTTY(t *testing.T) {
 	}
 }
 
-// TestNoColorEnvForcesOff — the NO_COLOR convention overrides
-// ColorAlways.
-func TestNoColorEnvForcesOff(t *testing.T) {
+// TestNoColorEnvAffectsOnlyAuto — the NO_COLOR convention suppresses
+// color under ColorAuto, but an explicit ColorAlways (e.g. `--color
+// always`) overrides it, as the flag's help promises.
+func TestNoColorEnvAffectsOnlyAuto(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	var buf bytes.Buffer
-	s := NewStyle(&buf, &buf, ColorAlways, Normal)
-	if s.UseColor() {
-		t.Error("NO_COLOR should override ColorAlways")
+
+	if NewStyle(&buf, &buf, ColorAuto, Normal).UseColor() {
+		t.Error("NO_COLOR should disable color under ColorAuto")
+	}
+	if !NewStyle(&buf, &buf, ColorAlways, Normal).UseColor() {
+		t.Error("ColorAlways should override NO_COLOR")
+	}
+}
+
+// TestInlineColorHelpers — Green/Red/Yellow/Bold/Faint emit codes when
+// color is on and pass text through untouched when it's off.
+func TestInlineColorHelpers(t *testing.T) {
+	var buf bytes.Buffer
+	on := NewStyle(&buf, &buf, ColorAlways, Normal)
+	off := NewStyle(&buf, &buf, ColorNever, Normal)
+	for _, fn := range []func(string) string{on.Green, on.Red, on.Yellow, on.Bold, on.Faint} {
+		if got := fn("x"); !strings.Contains(got, "\x1b[") || !strings.Contains(got, "x") {
+			t.Errorf("color-on helper should wrap text in codes; got %q", got)
+		}
+	}
+	for _, fn := range []func(string) string{off.Green, off.Red, off.Yellow, off.Bold, off.Faint} {
+		if got := fn("x"); got != "x" {
+			t.Errorf("color-off helper should pass text through; got %q", got)
+		}
 	}
 }
 

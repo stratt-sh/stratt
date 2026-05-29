@@ -39,6 +39,7 @@ in CI where any change to the working tree would be undesirable.`,
 				Stderr:   cmd.ErrOrStderr(),
 				CWD:      cwd,
 				Registry: reg,
+				Style:    styleFrom(cmd.Context()),
 			})
 
 			// --check uses the check-only resolver path and runs the

@@ -114,7 +114,8 @@ func maybeBumpRequiredStratt(cmd *cobra.Command, cwd string, b BuildInfo, autoYe
 	if err := config.SetRequiredStratt(proj.Source, constraint); err != nil {
 		return fmt.Errorf("setting required_stratt: %w", err)
 	}
-	fmt.Fprintf(out, "✓ Set required_stratt = %q in %s\n", constraint, proj.Source)
+	st := styleFrom(cmd.Context())
+	fmt.Fprintf(out, "%s Set required_stratt = %q in %s\n", st.Green("✓"), constraint, proj.Source)
 	return nil
 }
 
@@ -163,17 +164,18 @@ func newConfigShowCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			st := styleFrom(cmd.Context())
 			if proj.Source == "" {
 				fmt.Fprintln(out, "no stratt project config in this repo")
 				return nil
 			}
-			fmt.Fprintf(out, "Source:           %s\n", proj.Source)
-			fmt.Fprintf(out, "required_stratt:  %s\n", emptyDash(proj.RequiredStratt))
-			fmt.Fprintf(out, "Tasks:            %d\n", len(proj.Tasks))
-			fmt.Fprintf(out, "Helpers:          %d\n", len(proj.Helpers))
+			fmt.Fprintf(out, "%s %s\n", st.Bold("Source:          "), proj.Source)
+			fmt.Fprintf(out, "%s %s\n", st.Bold("required_stratt: "), emptyDash(proj.RequiredStratt))
+			fmt.Fprintf(out, "%s %d\n", st.Bold("Tasks:           "), len(proj.Tasks))
+			fmt.Fprintf(out, "%s %d\n", st.Bold("Helpers:         "), len(proj.Helpers))
 			if proj.Bump != nil {
-				fmt.Fprintf(out, "[bump]:           current_version=%s, files=%d\n",
-					proj.Bump.CurrentVersion, len(proj.Bump.Files))
+				fmt.Fprintf(out, "%s current_version=%s, files=%d\n",
+					st.Bold("[bump]:          "), proj.Bump.CurrentVersion, len(proj.Bump.Files))
 			}
 			return nil
 		},

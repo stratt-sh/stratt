@@ -591,3 +591,41 @@ func TestReleaseChainAnsibleCollection(t *testing.T) {
 		t.Errorf("got %q, want %q", got.Engine.Name(), want)
 	}
 }
+
+// TestBuildVerifyGoreleaserSingleTarget — a Go+goreleaser repo verifies
+// the build with goreleaser itself (so CI's config is exercised) but only
+// for the host target, not a full cross-compile.
+func TestBuildVerifyGoreleaserSingleTarget(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	touch(t, dir, ".goreleaser.yaml")
+	got := New(dir).ResolveBuildVerify()
+	if got == nil {
+		t.Fatal("expected a build-verify engine")
+	}
+	if want := "goreleaser build --snapshot --clean --single-target"; got.Name() != want {
+		t.Errorf("got %q, want %q", got.Name(), want)
+	}
+}
+
+// TestBuildVerifyPlainGo — without goreleaser, the check is a plain
+// `go build ./...` compile (writes no binaries for a multi-package build).
+func TestBuildVerifyPlainGo(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	got := New(dir).ResolveBuildVerify()
+	if got == nil {
+		t.Fatal("expected a build-verify engine")
+	}
+	if want := "go build ./..."; got.Name() != want {
+		t.Errorf("got %q, want %q", got.Name(), want)
+	}
+}
+
+// TestBuildVerifyNoStack — an unrecognized repo yields no engine, so the
+// release flow skips the build check instead of erroring.
+func TestBuildVerifyNoStack(t *testing.T) {
+	if got := New(t.TempDir()).ResolveBuildVerify(); got != nil {
+		t.Errorf("expected nil for empty repo, got %q", got.Name())
+	}
+}

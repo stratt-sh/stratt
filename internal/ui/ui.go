@@ -49,20 +49,21 @@ type Style struct {
 	useColor bool
 }
 
-// NewStyle returns a Style.  NO_COLOR (https://no-color.org) overrides
-// everything; otherwise mode wins, with ColorAuto checking for a TTY
-// on `out`.
+// NewStyle returns a Style.  An explicit mode set by the user wins:
+// ColorAlways forces color on even when $NO_COLOR is set (the user asked
+// for it directly, e.g. via `--color always`), and ColorNever forces it
+// off.  Only ColorAuto consults the environment — it honors the
+// NO_COLOR convention (https://no-color.org) and otherwise enables color
+// when `out` is a TTY.
 func NewStyle(out, errW io.Writer, mode ColorMode, level Level) *Style {
 	useColor := false
-	switch {
-	case os.Getenv("NO_COLOR") != "":
-		useColor = false
-	case mode == ColorAlways:
+	switch mode {
+	case ColorAlways:
 		useColor = true
-	case mode == ColorNever:
+	case ColorNever:
 		useColor = false
-	default:
-		useColor = isTerminal(out)
+	default: // ColorAuto
+		useColor = os.Getenv("NO_COLOR") == "" && isTerminal(out)
 	}
 	return &Style{Out: out, Err: errW, Level: level, useColor: useColor}
 }
@@ -105,3 +106,11 @@ func (s *Style) Warn(msg string) string     { return s.wrap(yellow, "warning:") 
 func (s *Style) Error(msg string) string    { return s.wrap(red, "error:") + " " + msg + "\n" }
 func (s *Style) Faint(text string) string   { return s.wrap(dim, text) }
 func (s *Style) Bold(text string) string    { return s.wrap(bold, text) }
+
+// Green, Red, and Yellow color inline fragments — a `✓` glyph, a marker,
+// a "Note:" label — in custom layouts where the whole-line helpers above
+// (Success/Failure/Warn) don't fit.  Like every other helper they emit
+// no codes when color is disabled.
+func (s *Style) Green(text string) string  { return s.wrap(green, text) }
+func (s *Style) Red(text string) string    { return s.wrap(red, text) }
+func (s *Style) Yellow(text string) string { return s.wrap(yellow, text) }

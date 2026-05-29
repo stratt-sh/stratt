@@ -4,9 +4,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/ui"
 	"github.com/stratt-sh/stratt/internal/update"
@@ -50,13 +54,89 @@ func styleFrom(ctx context.Context) *ui.Style {
 // presentation here.  Per R5.5: 1 = user error, 2 = system error.
 // Future error types (e.g., update-available advisories) may extend
 // to 3+.
+//
+// When stdout is a terminal we frame the whole invocation: a header rule
+// naming the command above the output, and a blank line below, so output
+// doesn't blend into the shell prompt or surrounding text.  This is purely
+// cosmetic and interactive-only: piped or redirected output is left
+// untouched so scripts see exactly what the command emits.  It lives here
+// rather than in Execute so it wraps every path uniformly — subcommands,
+// `--help` (which bypasses the pre-run hooks), and error output alike.
 func Run(b BuildInfo) int {
 	root := newRootCmd(b)
-	if err := root.Execute(); err != nil {
+	pad := term.IsTerminal(int(os.Stdout.Fd()))
+	if pad {
+		st := ui.NewStyle(os.Stdout, os.Stderr, resolveColorMode(colorFlagFromArgs(os.Args[1:])), ui.Normal)
+		fmt.Fprintln(os.Stdout) // blank line above the header, separating from the prompt
+		printHeader(os.Stdout, st, headerLabel(root), terminalWidth())
+	}
+	err := root.Execute()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+	}
+	if pad {
+		fmt.Fprintln(os.Stdout)
+	}
+	if err != nil {
 		return 1
 	}
 	return 0
+}
+
+// headerLabel is the command path shown in the interactive header, e.g.
+// "stratt doctor".  Falls back to "stratt" for the bare invocation,
+// `--help`, or an unrecognized command (cobra surfaces those errors
+// itself).
+func headerLabel(root *cobra.Command) string {
+	cmd, _, err := root.Find(os.Args[1:])
+	if err != nil || cmd == nil {
+		return root.Name()
+	}
+	return cmd.CommandPath()
+}
+
+// colorFlagFromArgs extracts a --color value from raw args, before cobra
+// has parsed them — the header is printed pre-Execute, so it can't read
+// the bound flag yet.  Supports both `--color X` and `--color=X`.
+func colorFlagFromArgs(args []string) string {
+	for i, a := range args {
+		if a == "--color" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if v, ok := strings.CutPrefix(a, "--color="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// terminalWidth returns stdout's column count, clamped to a sane range so
+// the header rule is neither stubby on a narrow pane nor absurdly long on
+// a maximized one.  Defaults to 60 when the size can't be read.
+func terminalWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		w = 60
+	}
+	if w > 80 {
+		w = 80
+	}
+	return w
+}
+
+// printHeader writes the interactive header: the command label followed by
+// a rule that fills the line, e.g. "── stratt doctor ─────────────".  The
+// label is bold and the rule dim, so it reads as a divider rather than
+// content.  width is the visible column budget; the rule fills whatever
+// the label and its framing leave.
+func printHeader(w io.Writer, st *ui.Style, label string, width int) {
+	const lead = "── "
+	prefix := lead + label + " "
+	fill := width - len([]rune(prefix))
+	if fill < 3 {
+		fill = 3
+	}
+	fmt.Fprintln(w, st.Faint(lead)+st.Bold(label)+" "+st.Faint(strings.Repeat("─", fill)))
 }
 
 func newRootCmd(b BuildInfo) *cobra.Command {
@@ -68,12 +148,12 @@ func newRootCmd(b BuildInfo) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "stratt",
 		Short: "The operations chief for your repo",
-		Long: `stratt is a polyglot task runner that detects your project's stack
-and provides a unified CLI for build, test, release, and deploy.
+		Long: `One set of commands for every repo, whatever language it's in.
 
-It replaces Makefiles with a single, statically-linked binary that handles
-the universal targets (build/test/lint/release) plus Kustomize image bumps
-for Kubernetes deploys.
+build, test, lint, release, deploy — the same commands whether the repo is
+Go, Python, Node, or PHP. Stratt detects the toolchain and dispatches; you
+don't think about it. It also manages release versions and bumps Kustomize
+image tags, replacing the per-repo Makefile.
 
 Agents: run ` + "`stratt agents context`" + ` for an orientation plus the resolved
 command map for this repo, or ` + "`stratt doctor`" + ` for a full health report.`,
@@ -121,6 +201,12 @@ command map for this repo, or ` + "`stratt doctor`" + ` for a full health report
 	root.AddCommand(newWorkspaceCmd())
 	root.AddCommand(newAgentsCmd(b))
 
+	// Append a "Project tasks" section to the root help so public
+	// [tasks.*] from the repo config are discoverable, not just the
+	// built-in commands.  Captures the default help func first so we
+	// render it, then add our section.
+	root.SetHelpFunc(projectTasksHelp(root.HelpFunc()))
+
 	return root
 }
 
@@ -142,22 +228,28 @@ func applyVerbosityAndColor(cmd *cobra.Command, vcount int, quiet bool, colorFla
 		level = ui.Verbose
 	}
 
-	mode := ui.ColorAuto
 	usr, _ := config.LoadUser()
-	if usr != nil && usr.Display != nil {
-		if usr.Display.Color != "" {
-			mode = ui.ParseColorMode(usr.Display.Color)
-		}
-		if usr.Display.Verbosity != "" && !quiet && vcount == 0 {
-			level = parseVerbosityString(usr.Display.Verbosity)
-		}
+	if usr != nil && usr.Display != nil && usr.Display.Verbosity != "" && !quiet && vcount == 0 {
+		level = parseVerbosityString(usr.Display.Verbosity)
+	}
+
+	style := ui.NewStyle(cmd.OutOrStdout(), cmd.ErrOrStderr(), resolveColorMode(colorFlag), level)
+	cmd.SetContext(withStyle(cmd.Context(), style))
+}
+
+// resolveColorMode picks the color mode from the user config and the
+// --color flag, flag winning.  $NO_COLOR is applied later inside
+// ui.NewStyle.  Shared by the per-command style (applyVerbosityAndColor)
+// and the interactive header in Run, so both honor the same precedence.
+func resolveColorMode(colorFlag string) ui.ColorMode {
+	mode := ui.ColorAuto
+	if usr, _ := config.LoadUser(); usr != nil && usr.Display != nil && usr.Display.Color != "" {
+		mode = ui.ParseColorMode(usr.Display.Color)
 	}
 	if colorFlag != "" {
 		mode = ui.ParseColorMode(colorFlag)
 	}
-
-	style := ui.NewStyle(cmd.OutOrStdout(), cmd.ErrOrStderr(), mode, level)
-	cmd.SetContext(withStyle(cmd.Context(), style))
+	return mode
 }
 
 func parseVerbosityString(s string) ui.Level {

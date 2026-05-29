@@ -21,6 +21,7 @@ import (
 	"os/exec"
 
 	"github.com/stratt-sh/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/ui"
 )
 
 // ErrNoEngine is returned from Run when the command has no resolved
@@ -52,6 +53,11 @@ type Options struct {
 
 	// Quiet suppresses the "→ <engine>" status line; useful for piping output.
 	Quiet bool
+
+	// Style colorizes the runner's own status lines (→ engine, ▶ task,
+	// + shell).  Optional; when nil, New installs a no-color style so
+	// status lines render as plain text.
+	Style *ui.Style
 }
 
 // Runner executes resolved engines.
@@ -72,6 +78,10 @@ func New(opts Options) *Runner {
 		if err == nil {
 			opts.CWD = cwd
 		}
+	}
+	if opts.Style == nil {
+		// No style supplied: render status lines as plain text.
+		opts.Style = ui.NewStyle(opts.Stdout, opts.Stderr, ui.ColorNever, ui.Normal)
 	}
 	return &Runner{opts: opts}
 }
@@ -96,7 +106,7 @@ func (r *Runner) RunEngine(ctx context.Context, engine capability.Engine, args [
 		return ErrNoEngine
 	}
 	if !r.opts.Quiet {
-		fmt.Fprintf(r.opts.Stderr, "→ %s\n", engine.Name())
+		fmt.Fprint(r.opts.Stderr, r.opts.Style.Progress(engine.Name()))
 	}
 	return engine.Run(ctx, args)
 }
@@ -133,7 +143,7 @@ func (r *Runner) runTask(ctx context.Context, task *Task) error {
 		// Announce composite/user tasks so the output trail makes sense.
 		// Pure-engine tasks announce themselves in RunEngine.
 		if task.Engine == nil || len(task.Tasks) > 0 || len(task.Before) > 0 || len(task.After) > 0 {
-			fmt.Fprintf(r.opts.Stderr, "▶ %s\n", task.Name)
+			fmt.Fprint(r.opts.Stderr, r.opts.Style.Task(task.Name))
 		}
 	}
 
@@ -172,7 +182,7 @@ func (r *Runner) runTask(ctx context.Context, task *Task) error {
 // per Make-style task semantics.
 func (r *Runner) execShell(ctx context.Context, cmdStr string) error {
 	if !r.opts.Quiet {
-		fmt.Fprintf(r.opts.Stderr, "+ %s\n", cmdStr)
+		fmt.Fprint(r.opts.Stderr, r.opts.Style.ShellCmd(cmdStr))
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 	cmd.Stdin = os.Stdin

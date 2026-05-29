@@ -37,6 +37,19 @@ replace = 'current_version = "{new_version}"'
 description = "Build a local snapshot via GoReleaser (no publish)"
 run = "goreleaser release --snapshot --clean --skip=publish"
 
+# Build a local dev binary for manual testing.  Lands in ./bin, which is
+# gitignored and removed by `stratt clean` (clean wipes ./bin for Go stacks),
+# so there's no cleanup to remember.  Stamps a `dev-<git describe>` version
+# so `./bin/stratt version` is unmistakably a local build, never confused
+# with a release.  Invoke the result directly:
+#   stratt run dev && ./bin/stratt doctor
+[tasks.dev]
+description = "Build a local dev binary at ./bin/stratt for manual testing"
+run = [
+    'go build -ldflags "-X main.version=dev-$(git describe --tags --always --dirty) -X main.commit=$(git rev-parse --short HEAD)" -o bin/stratt ./cmd/stratt',
+    'echo "built ./bin/stratt — run it directly, e.g. ./bin/stratt doctor"',
+]
+
 # Helpers — hidden from `stratt help`, but reachable via `stratt run <name>`
 # and composable from other tasks.  None yet for the stratt repo.
 # [helpers.example]

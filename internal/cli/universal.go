@@ -96,6 +96,7 @@ func newUniversalCmd(spec universalSpec) *cobra.Command {
 				Stderr:   cmd.ErrOrStderr(),
 				CWD:      cwd,
 				Registry: reg,
+				Style:    styleFrom(cmd.Context()),
 			})
 
 			if err := run.RunTask(cmd.Context(), spec.name); err != nil {
@@ -137,6 +138,7 @@ Use ` + "`stratt help`" + ` to see all available tasks.`,
 				Stderr:   cmd.ErrOrStderr(),
 				CWD:      cwd,
 				Registry: reg,
+				Style:    styleFrom(cmd.Context()),
 			})
 			if err := run.RunTask(cmd.Context(), args[0]); err != nil {
 				if errors.Is(err, runner.ErrUnknownTask) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stratt-sh/stratt/internal/bump"
+	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/release"
 	"github.com/stratt-sh/stratt/internal/runner"
@@ -31,9 +32,15 @@ func newReleaseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "release [patch|minor|major]",
 		Short: "Bump version, commit, tag, and (optionally) push",
-		Long: `Run the release flow: bump version per [bump]/[tool.bumpversion] config,
-commit, tag, and push.  stratt does NOT build release artifacts —
-GitHub Actions takes over after the tag is pushed.
+		Long: `Run the release flow: verify, bump version per [bump]/[tool.bumpversion]
+config, commit, tag, and push.
+
+Verification runs first — the full ` + "`stratt all`" + ` suite (sync, format, lint,
+test, docs) plus a build check that compiles the project the same way CI
+will (for goreleaser repos, ` + "`goreleaser build --single-target`" + `), so a
+broken build fails here instead of in CI after the tag is pushed.  stratt
+does NOT produce or publish release artifacts — GitHub Actions takes over
+after the tag.
 
 Examples:
   stratt release                # interactive: prompt for patch|minor|major
@@ -123,23 +130,37 @@ See requirements R2.4 for the full design.`,
 				Stdout:     cmd.OutOrStdout(),
 				Stderr:     cmd.ErrOrStderr(),
 				PreReleaseCheck: func(ctx context.Context) error {
-					// Skip silently if `all` doesn't exist (e.g., this
-					// repo has no format/lint/test detected).  Better
-					// than failing loudly for repos that haven't earned
-					// the composite.
-					if reg.Lookup("all") == nil {
-						fmt.Fprintln(cmd.ErrOrStderr(),
-							"  (no `all` task in this repo — skipping pre-release checks)")
-						return nil
-					}
 					r := runner.New(runner.Options{
 						Stdout:   cmd.OutOrStdout(),
 						Stderr:   cmd.ErrOrStderr(),
 						CWD:      cwd,
 						Registry: reg,
 						CI:       ciFlag,
+						Style:    styleFrom(cmd.Context()),
 					})
-					return r.RunTask(ctx, "all")
+
+					// Full verification suite (sync/format/lint/test/docs),
+					// when this repo has earned the `all` composite.  Skip
+					// silently otherwise rather than failing a repo with no
+					// format/lint/test detected.
+					if reg.Lookup("all") == nil {
+						fmt.Fprintln(cmd.ErrOrStderr(),
+							"  (no `all` task in this repo — skipping verification suite)")
+					} else if err := r.RunTask(ctx, "all"); err != nil {
+						return err
+					}
+
+					// Build verification: confirm the project builds before
+					// we tag, so breakage surfaces here instead of in CI
+					// after the tag is pushed.  This produces only a local
+					// snapshot (gitignored), never release artifacts — CI
+					// still owns producing and publishing those.
+					if eng := capability.New(cwd).ResolveBuildVerify(); eng != nil {
+						if err := r.RunEngine(ctx, eng, nil); err != nil {
+							return err
+						}
+					}
+					return nil
 				},
 			}
 

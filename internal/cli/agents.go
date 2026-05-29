@@ -11,6 +11,7 @@ import (
 	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/runner"
+	"github.com/stratt-sh/stratt/internal/ui"
 	"github.com/stratt-sh/stratt/internal/workspace"
 )
 
@@ -54,14 +55,15 @@ func newAgentsContextCmd(b BuildInfo) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
+			st := styleFrom(cmd.Context())
 			fmt.Fprint(out, agentsOrientation)
 
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
-			renderRepoContext(out, cwd, b)
-			renderWorkspaceContext(out)
+			renderRepoContext(out, st, cwd, b)
+			renderWorkspaceContext(out, st)
 			return nil
 		},
 	}
@@ -71,9 +73,9 @@ func newAgentsContextCmd(b BuildInfo) *cobra.Command {
 // stacks and the resolved command map.  Tolerant of config/detection
 // problems — like doctor, it surfaces issues inline rather than failing,
 // because an agent reading context must still get whatever is knowable.
-func renderRepoContext(out interface{ Write([]byte) (int, error) }, cwd string, b BuildInfo) {
+func renderRepoContext(out interface{ Write([]byte) (int, error) }, st *ui.Style, cwd string, b BuildInfo) {
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "THIS REPOSITORY (%s)\n", cwd)
+	fmt.Fprintln(out, st.Bold(fmt.Sprintf("THIS REPOSITORY (%s)", cwd)))
 
 	proj, cfgErr := config.Load(cwd)
 	resolver := capability.New(cwd)
@@ -96,20 +98,24 @@ func renderRepoContext(out interface{ Write([]byte) (int, error) }, cwd string, 
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "  resolved commands (run `stratt <command>`):")
+	fmt.Fprintln(out, "  "+st.Bold("resolved commands (run `stratt <command>`):"))
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, rc := range resolveCommandList(resolver, reg) {
 		if rc.Backend == "" {
-			fmt.Fprintf(tw, "    %s\t→ —\t(no engine matched)\n", rc.Command)
+			fmt.Fprintf(tw, "    %s\t→ —\t%s\n", rc.Command, st.Faint("(no engine matched)"))
 			continue
 		}
-		fmt.Fprintf(tw, "    %s\t→ %s\t%s\n", rc.Command, rc.Backend, rc.Marker)
+		marker := rc.Marker
+		if marker != "" {
+			marker = st.Faint(marker)
+		}
+		fmt.Fprintf(tw, "    %s\t→ %s\t%s\n", rc.Command, rc.Backend, marker)
 	}
 	tw.Flush()
 
 	if cfgErr != nil {
 		fmt.Fprintln(out)
-		fmt.Fprintf(out, "  note: project config has an error (%v) — fix it before running commands.\n", cfgErr)
+		fmt.Fprintf(out, "  %s project config has an error (%v) — fix it before running commands.\n", st.Yellow("note:"), cfgErr)
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "  full health detail: `stratt doctor`")
@@ -122,7 +128,7 @@ func renderRepoContext(out interface{ Write([]byte) (int, error) }, cwd string, 
 // workspace list` wouldn't work anyway.  Config-load failures are
 // swallowed: a missing or broken user config simply means "no workspace
 // section", never an error in the agent dump.
-func renderWorkspaceContext(out interface{ Write([]byte) (int, error) }) {
+func renderWorkspaceContext(out interface{ Write([]byte) (int, error) }, st *ui.Style) {
 	usr, err := config.LoadUser()
 	if err != nil || usr == nil || usr.Workspace == nil || usr.Workspace.Root == "" {
 		return
@@ -133,7 +139,7 @@ func renderWorkspaceContext(out interface{ Write([]byte) (int, error) }) {
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "WORKSPACE")
+	fmt.Fprintln(out, st.Bold("WORKSPACE"))
 	fmt.Fprintf(out, "  This repo lives in a stratt-managed workspace rooted at %s, laid out\n", usr.Workspace.Root)
 	fmt.Fprintf(out, "  as %s.\n", layout)
 	fmt.Fprintln(out, "  Run `stratt workspace list` to see the other repos here and their")

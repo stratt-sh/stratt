@@ -28,7 +28,6 @@ func TestDoctorOutputShape(t *testing.T) {
 	body := out.String()
 
 	for _, expected := range []string{
-		"stratt doctor",
 		"version : 1.2.3",
 		"commit  : abc1234",
 		"built   : 2026-01-01",
@@ -84,7 +83,7 @@ func TestDoctorAliasDr(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("`stratt dr` failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "stratt doctor") {
+	if !strings.Contains(out.String(), "Resolved commands:") {
 		t.Errorf("expected doctor output from `dr` alias; got:\n%s", out.String())
 	}
 }

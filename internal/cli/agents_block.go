@@ -22,9 +22,9 @@ const (
 	agentsBeginMarker = "<!-- BEGIN stratt (managed — run `stratt agents sync`, do not edit) -->"
 	agentsEndMarker   = "<!-- END stratt -->"
 
-	agentsBlockBody = "This project uses **stratt**, an opinionated replacement for `make` that\n" +
-		"abstracts common SDLC tasks (build, test, lint, release, deploy) into one set\n" +
-		"of commands that work the same regardless of the project's language or platform.\n" +
+	agentsBlockBody = "This project uses **stratt**: one set of commands — build, test, lint,\n" +
+		"release, deploy — that work the same whatever the repo's language. Stratt\n" +
+		"detects the toolchain and dispatches, replacing the per-repo Makefile.\n" +
 		"\n" +
 		"Run `stratt agents context` for how to use stratt in this project — the resolved\n" +
 		"command map, flags, and conventions. Additional docs: https://stratt.sh"

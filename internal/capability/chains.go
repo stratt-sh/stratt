@@ -50,6 +50,32 @@ func (r *Resolver) resolveBuild() Engine {
 	return nil
 }
 
+// ResolveBuildVerify returns the build engine `stratt release` runs to
+// catch build breakage before a tag is pushed — the failure GitHub
+// Actions would otherwise hit *after* the tag is immutable.
+//
+// For a Go + goreleaser repo it runs goreleaser itself, so the release
+// config is exercised exactly as CI will exercise it — but with
+// --single-target, which builds only the host GOOS/GOARCH instead of
+// cross-compiling every target.  That's the slow part of a full build,
+// and a pure-Go (CGO_ENABLED=0) project rarely breaks per-platform, so
+// one target is a good speed/coverage trade.  The snapshot artifacts land
+// in the gitignored dist/, so the working tree stays clean for release's
+// post-check.
+//
+// Without goreleaser, a plain `go build ./...` is the compile check
+// (it writes no binaries for a multi-package build).  Returns nil for
+// stacks where no cheap verification is defined, so the caller can skip.
+func (r *Resolver) ResolveBuildVerify() Engine {
+	switch {
+	case r.HasStack("go") && r.fileExists(".goreleaser.yaml", ".goreleaser.yml"):
+		return &execEngine{tool: "goreleaser", argv: []string{"build", "--snapshot", "--clean", "--single-target"}}
+	case r.HasStack("go"):
+		return &execEngine{tool: "go", argv: []string{"build", "./..."}, display: "go build ./..."}
+	}
+	return nil
+}
+
 // resolveTest — see requirements.md §3 "test" chain.
 func (r *Resolver) resolveTest() Engine {
 	switch {

@@ -63,16 +63,23 @@ changelog:
 # Secrets required on this repo:
 #   - HOMEBREW_TAP_TOKEN_STRATTSH fine-grained PAT, Contents r/w on stratt-sh/homebrew-tap
 
-brews:
+# Casks, not formulae: GoReleaser deprecated `brews` (which generated
+# binary-installing formulae) in favor of `homebrew_casks`.  The post-install
+# hook strips the macOS quarantine attribute so `brew install` of the
+# unsigned binary just works — no Gatekeeper right-click dance.
+homebrew_casks:
   - name: stratt
     repository:
       owner: stratt-sh
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN_STRATTSH }}"
     homepage: "https://stratt.sh"
-    description: "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
-    license: Apache-2.0
-    test: |
-      system "#{bin}/stratt version"
-    install: |
-      bin.install "stratt"
+    description: "One set of commands for every repo, whatever language it's in — build, test, lint, release, deploy."
+    binaries:
+      - stratt
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/stratt"]
+          end

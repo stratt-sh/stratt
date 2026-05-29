@@ -90,7 +90,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create parent of %s: %w", target, err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "cloning into %s\n", target)
+	fmt.Fprint(cmd.OutOrStdout(), styleFrom(cmd.Context()).Progress("cloning into "+target))
 
 	gitArgs := append([]string{"clone"}, flags...)
 	gitArgs = append(gitArgs, url, target)
@@ -164,7 +164,9 @@ func setupWorkspaceInteractive(cmd *cobra.Command) (*config.UserWorkspace, error
 	if err := config.SetUserWorkspace(cfgPath, root, layout); err != nil {
 		return nil, fmt.Errorf("write %s: %w", cfgPath, err)
 	}
-	fmt.Fprintf(out, "\nSaved [workspace] to %s\n\n", cfgPath)
+	fmt.Fprintln(out)
+	fmt.Fprint(out, styleFrom(cmd.Context()).Success("Saved [workspace] to "+cfgPath))
+	fmt.Fprintln(out)
 
 	return &config.UserWorkspace{Root: root, Layout: layout}, nil
 }

@@ -64,7 +64,8 @@ func runWorkspaceList(cmd *cobra.Command) error {
 		return nil
 	}
 
-	fmt.Fprintf(out, "%d repo%s under %s\n\n", len(repos), plural(len(repos)), base)
+	fmt.Fprintln(out, st.Bold(fmt.Sprintf("%d repo%s under %s", len(repos), plural(len(repos)), base)))
+	fmt.Fprintln(out)
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, dir := range repos {
