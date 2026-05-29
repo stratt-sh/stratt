@@ -22,11 +22,21 @@ import (
 type User struct {
 	Source string
 
-	Update  *UserUpdate
-	Display *UserDisplay
-	Paths   *UserPaths
-	Release *UserReleaseDefaults
-	Deploy  *UserDeployDefaults
+	Update    *UserUpdate
+	Display   *UserDisplay
+	Paths     *UserPaths
+	Release   *UserReleaseDefaults
+	Deploy    *UserDeployDefaults
+	Workspace *UserWorkspace
+}
+
+// UserWorkspace configures `stratt clone`'s on-disk layout.  `Root` is
+// the directory under which cloned repos are placed (e.g. "~/code").
+// `Layout` is a template containing some combination of {host}, {org},
+// and {repo}; defaults to "{host}/{org}/{repo}" when empty.
+type UserWorkspace struct {
+	Root   string
+	Layout string
 }
 
 // UserUpdate — per-user update behavior (R6.7).
@@ -130,6 +140,12 @@ func LoadUser() (*User, error) {
 			Commit: raw.Deploy.Commit,
 		}
 	}
+	if raw.Workspace != nil {
+		u.Workspace = &UserWorkspace{
+			Root:   raw.Workspace.Root,
+			Layout: raw.Workspace.Layout,
+		}
+	}
 	return u, nil
 }
 
@@ -138,11 +154,17 @@ func LoadUser() (*User, error) {
 // unknown-field parsing rejects anything that doesn't fit, so a
 // misplaced [tasks] in the user file fails with "unknown field tasks".
 type rawUser struct {
-	Update  *rawUserUpdate          `toml:"update"`
-	Display *rawUserDisplay         `toml:"display"`
-	Paths   map[string]string       `toml:"paths"`
-	Release *rawUserReleaseDefaults `toml:"release"`
-	Deploy  *rawUserDeployDefaults  `toml:"deploy"`
+	Update    *rawUserUpdate          `toml:"update"`
+	Display   *rawUserDisplay         `toml:"display"`
+	Paths     map[string]string       `toml:"paths"`
+	Release   *rawUserReleaseDefaults `toml:"release"`
+	Deploy    *rawUserDeployDefaults  `toml:"deploy"`
+	Workspace *rawUserWorkspace       `toml:"workspace"`
+}
+
+type rawUserWorkspace struct {
+	Root   string `toml:"root"`
+	Layout string `toml:"layout"`
 }
 
 type rawUserUpdate struct {

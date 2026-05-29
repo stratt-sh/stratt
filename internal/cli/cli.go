@@ -114,6 +114,7 @@ for Kubernetes deploys.`,
 	root.AddCommand(newDocsCmd())
 	root.AddCommand(newSelfCmd(b))
 	root.AddCommand(newConfigCmd(b))
+	root.AddCommand(newCloneCmd())
 
 	return root
 }
@@ -180,7 +181,7 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 	// the deepest command, so walk up to recognize the family.
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "version", "doctor", "help", "self":
+		case "version", "doctor", "help", "self", "clone":
 			return nil
 		}
 	}
