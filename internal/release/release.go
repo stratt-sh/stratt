@@ -24,6 +24,7 @@ import (
 
 	"github.com/stratt-sh/stratt/internal/bump"
 	"github.com/stratt-sh/stratt/internal/git"
+	"github.com/stratt-sh/stratt/internal/ui"
 )
 
 // Options drives a single release.  Zero-value Options is *not* safe —
@@ -77,6 +78,10 @@ type Options struct {
 	// SkipChecks bypasses PreReleaseCheck entirely.  For emergency
 	// releases when the full check suite is broken for unrelated reasons.
 	SkipChecks bool
+
+	// Style colorizes status and success output.  Optional; when nil, Run
+	// installs a no-color style so output renders as plain text.
+	Style *ui.Style
 }
 
 // Run executes one release per Options.  Returns nil on success, or a
@@ -87,6 +92,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if opts.Remote == "" {
 		opts.Remote = "origin"
+	}
+	if opts.Style == nil {
+		opts.Style = ui.NewStyle(opts.Stdout, opts.Stderr, ui.ColorNever, ui.Normal)
 	}
 
 	// Wrap stdin once so prompts share a buffer.  Multiple bufio.Readers
@@ -102,7 +110,7 @@ func Run(ctx context.Context, opts Options) error {
 			return err
 		}
 		opts.Branch = detected
-		fmt.Fprintf(opts.Stderr, "→ release branch: %s (auto-detected)\n", opts.Branch)
+		fmt.Fprint(opts.Stderr, opts.Style.Progress(fmt.Sprintf("release branch: %s (auto-detected)", opts.Branch)))
 	}
 
 	if err := preflight(ctx, repo, opts); err != nil {
@@ -113,7 +121,7 @@ func Run(ctx context.Context, opts Options) error {
 	// the bump so that formatters/autofixers have a chance to modify
 	// files; the post-check below catches any unstaged changes.
 	if !opts.SkipChecks && opts.PreReleaseCheck != nil {
-		fmt.Fprintln(opts.Stderr, "→ running pre-release checks")
+		fmt.Fprint(opts.Stderr, opts.Style.Progress("running pre-release checks"))
 		if err := opts.PreReleaseCheck(ctx); err != nil {
 			return fmt.Errorf("pre-release checks failed: %w", err)
 		}
@@ -210,20 +218,20 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	if opts.Push {
-		fmt.Fprintf(opts.Stdout, "→ pushing commit to %s/%s\n", opts.Remote, opts.Branch)
+		fmt.Fprint(opts.Stdout, opts.Style.Progress(fmt.Sprintf("pushing commit to %s/%s", opts.Remote, opts.Branch)))
 		if err := repo.PushBranch(ctx, opts.Remote, opts.Branch); err != nil {
 			return fmt.Errorf("push branch: %w", err)
 		}
-		fmt.Fprintf(opts.Stdout, "✓ pushed commit to %s/%s\n", opts.Remote, opts.Branch)
+		fmt.Fprint(opts.Stdout, opts.Style.Success(fmt.Sprintf("pushed commit to %s/%s", opts.Remote, opts.Branch)))
 		if cfg.Tag {
-			fmt.Fprintf(opts.Stdout, "→ pushing tag %s\n", plan.TagName)
+			fmt.Fprint(opts.Stdout, opts.Style.Progress(fmt.Sprintf("pushing tag %s", plan.TagName)))
 			if err := repo.PushTag(ctx, opts.Remote, plan.TagName); err != nil {
 				return fmt.Errorf("push tag: %w", err)
 			}
-			fmt.Fprintf(opts.Stdout, "✓ pushed tag %s\n", plan.TagName)
+			fmt.Fprint(opts.Stdout, opts.Style.Success(fmt.Sprintf("pushed tag %s", plan.TagName)))
 		}
-		fmt.Fprintf(opts.Stdout, "\n✓ Released %s — remote is now at %s.\n",
-			plan.NewVersion, plan.TagName)
+		fmt.Fprintf(opts.Stdout, "\n%s\n", opts.Style.Green(
+			fmt.Sprintf("✓ Released %s — remote is now at %s.", plan.NewVersion, plan.TagName)))
 	} else {
 		fmt.Fprintf(opts.Stdout, "\nLocal release complete (push disabled).  Push manually with:\n  git push %s %s\n",
 			opts.Remote, opts.Branch)
