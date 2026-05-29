@@ -38,7 +38,7 @@ an origin that can't be parsed into host/org/repo, or a canonical target
 that is already occupied.
 
 If no [workspace] is configured yet, you'll be prompted to set the root
-and layout first — the same setup `+"`stratt clone`"+` runs.`,
+and layout first — the same setup ` + "`stratt clone`" + ` runs.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceOrganize(cmd, apply)
 		},
