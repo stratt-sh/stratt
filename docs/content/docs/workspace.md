@@ -4,7 +4,7 @@ linkTitle: Workspace
 weight: 3
 ---
 
-Stratt can manage where repositories live on disk. Point it at a workspace root, pick a layout, and `stratt clone` puts every repo at a predictable path. Two read-only commands then operate across the whole tree.
+Stratt can manage where repositories live on disk. Point it at a workspace root, pick a layout, and `stratt clone` puts every repo at a predictable path. A handful of read-only commands then operate across the whole tree.
 
 ## Configure the workspace
 
@@ -45,6 +45,26 @@ Flags after the URL pass straight through to `git clone`. To bypass layout resol
 ```sh
 stratt clone https://github.com/stratt-sh/stratt ./somewhere-else
 ```
+
+## workspace list
+
+List every git repo under `root`, with its path (relative to the root) and a one-line description:
+
+```sh
+stratt workspace list
+```
+
+```
+12 repos under /home/you/code
+
+github.com/stratt-sh/stratt  One set of commands for every repo, whatever language it's in.
+github.com/acme/widget       Builds widgets.
+…
+```
+
+The description is read from each repo's README — the blockquote tagline beneath the title, the opening sentence, or failing those the project name. Nothing is shown for a repo with no usable README. The command is strictly read-only and offline: it walks the tree and reads a few lines of each README, touching neither git nor the network.
+
+This is mainly here to make a workspace legible to AI coding agents: an agent working in one repo can run `stratt workspace list` to discover sibling repos and where they live when a task needs code or context from elsewhere in the tree. See [Agents](../agents/).
 
 ## workspace status
 

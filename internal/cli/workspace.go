@@ -21,6 +21,7 @@ func newWorkspaceCmd() *cobra.Command {
 		Long: `Commands that act on every git repository beneath the workspace root
 configured in ~/.stratt/config.toml (the same root ` + "`stratt clone`" + ` uses).`,
 	}
+	cmd.AddCommand(newWorkspaceListCmd())
 	cmd.AddCommand(newWorkspaceStatusCmd())
 	cmd.AddCommand(newWorkspaceOrganizeCmd())
 	return cmd

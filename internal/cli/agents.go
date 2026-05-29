@@ -11,6 +11,7 @@ import (
 	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/runner"
+	"github.com/stratt-sh/stratt/internal/workspace"
 )
 
 // agentsOrientation is the static "what is stratt / how do I drive it"
@@ -60,6 +61,7 @@ func newAgentsContextCmd(b BuildInfo) *cobra.Command {
 				return err
 			}
 			renderRepoContext(out, cwd, b)
+			renderWorkspaceContext(out)
 			return nil
 		},
 	}
@@ -111,6 +113,31 @@ func renderRepoContext(out interface{ Write([]byte) (int, error) }, cwd string, 
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "  full health detail: `stratt doctor`")
+}
+
+// renderWorkspaceContext appends a WORKSPACE section telling an agent it
+// is inside a stratt-managed workspace and how to discover sibling repos.
+// It prints nothing unless the user has actually configured a [workspace]
+// root — without that, there is no workspace to describe and `stratt
+// workspace list` wouldn't work anyway.  Config-load failures are
+// swallowed: a missing or broken user config simply means "no workspace
+// section", never an error in the agent dump.
+func renderWorkspaceContext(out interface{ Write([]byte) (int, error) }) {
+	usr, err := config.LoadUser()
+	if err != nil || usr == nil || usr.Workspace == nil || usr.Workspace.Root == "" {
+		return
+	}
+	layout := usr.Workspace.Layout
+	if layout == "" {
+		layout = workspace.DefaultLayout
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "WORKSPACE")
+	fmt.Fprintf(out, "  This repo lives in a stratt-managed workspace rooted at %s, laid out\n", usr.Workspace.Root)
+	fmt.Fprintf(out, "  as %s.\n", layout)
+	fmt.Fprintln(out, "  Run `stratt workspace list` to see the other repos here and their")
+	fmt.Fprintln(out, "  paths — handy when a task needs code or context from a sibling repo.")
 }
 
 // joinComma joins parts with ", " — a tiny local helper to avoid pulling

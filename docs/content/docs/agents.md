@@ -16,6 +16,8 @@ stratt agents context
 
 Point an agent at this once and it has the resolved commands, the relevant flags (`--ci`, `--yes`, `--no-push`), and the exit-code convention. Like `doctor`, it surfaces config or detection problems inline rather than failing, so the agent still gets whatever is knowable.
 
+If you've configured a [workspace](../workspace/) root, `agents context` ends with a short **workspace** section: it notes that the repo lives in a stratt-managed workspace, gives the layout, and points the agent at `stratt workspace list` to discover sibling repos. The section is omitted entirely when no `[workspace]` is configured — there's nothing to describe and no tree to list.
+
 ## agents init and sync
 
 `stratt agents init` adds a short stratt block to the repo's `AGENTS.md`, telling any agent that reads it that stratt is in use and to run `stratt agents context` to learn the commands.

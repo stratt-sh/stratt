@@ -37,6 +37,41 @@ func TestAgentsContextIncludesOrientationAndMap(t *testing.T) {
 	}
 }
 
+// TestAgentsContextWorkspaceSectionGated — the WORKSPACE section appears
+// only when the user has a [workspace] root configured.
+func TestAgentsContextWorkspaceSectionGated(t *testing.T) {
+	run := func(t *testing.T) string {
+		dir := t.TempDir()
+		touch(t, dir, "go.mod")
+		withCwd(t, dir)
+		cmd := newAgentsContextCmd(BuildInfo{Version: "1.0.0", Commit: "abc", Date: "today"})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+
+	t.Run("absent without workspace config", func(t *testing.T) {
+		withUserConfig(t, "") // valid but empty user config: no [workspace]
+		if body := run(t); strings.Contains(body, "WORKSPACE") {
+			t.Errorf("WORKSPACE section should be absent without config; got:\n%s", body)
+		}
+	})
+
+	t.Run("present with workspace config", func(t *testing.T) {
+		withUserConfig(t, "[workspace]\nroot = \"~/code\"\nlayout = \"{org}/{repo}\"\n")
+		body := run(t)
+		for _, want := range []string{"WORKSPACE", "~/code", "{org}/{repo}", "stratt workspace list"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("WORKSPACE section missing %q; got:\n%s", want, body)
+			}
+		}
+	})
+}
+
 // TestAgentsContextEmptyRepo — outside a recognized stack, context still
 // prints orientation and notes zero-config mode rather than erroring.
 func TestAgentsContextEmptyRepo(t *testing.T) {

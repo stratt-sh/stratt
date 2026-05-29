@@ -19,18 +19,20 @@ The `--version` flag accepts three forms:
 | Selector  | Resolves to                          | Use case                                         |
 |-----------|--------------------------------------|--------------------------------------------------|
 | (omitted) | Latest stable release                | Workstations, fast-iterating projects            |
-| `v1`      | Latest `v1.x.y` (compatible major)   | **CI default** — gets fixes, never a breaking major |
-| `v1.14`   | Latest `v1.14.x` (compatible minor)  | Conservative pin                                 |
-| `v1.14.1` | Exact pin                            | Fully reproducible builds                        |
+| `v0`      | Latest `v0.x.y` (compatible major)   | **CI default** — gets fixes, never a breaking major |
+| `v0.5`    | Latest `v0.5.x` (compatible minor)   | Conservative pin                                 |
+| `v0.5.1`  | Exact pin                            | Fully reproducible builds                        |
 
 ```sh
-curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v1
-curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v1.14.1
+curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v0
+curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v0.5.1
 ```
 
 Other flags: `--dir <path>`, `--repo owner/name` (for forks).
 
 ## GitHub Actions
+
+On GitHub Actions, use the [`setup-stratt`](https://github.com/stratt-sh/setup-stratt) action rather than calling the install script directly. It downloads the binary, verifies its checksum **and** its GitHub artifact attestation before anything executes, and adds it to `PATH`:
 
 ```yaml
 jobs:
@@ -38,36 +40,34 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      attestations: read   # required for `gh attestation verify` (see below)
+      attestations: read   # required for attestation verification (see below)
     steps:
       - uses: actions/checkout@v6
-      - name: Install stratt
-        run: |
-          curl -fsSL https://stratt.sh/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: stratt-sh/setup-stratt@v0
       - run: stratt all
 ```
 
-For long-lived CI, pin to a major version so you get bug fixes but not breaking changes:
+`@v0` is a floating tag that fast-forwards on each non-breaking action release: you get fixes for free, never a surprise breaking change. By default the action installs the latest stratt CLI within its own major — `@v0` installs the latest `stratt v0.x.y`.
+
+Pin the stratt CLI version with the `version` input:
 
 ```yaml
-      - name: Install stratt
-        run: |
-          curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v1
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: stratt-sh/setup-stratt@v0
+        with:
+          version: v0.5.1     # exact pin — fully reproducible
+          # version: v0.5     # latest v0.5.x
+          # version: latest   # latest stable across any major
 ```
 
-This installs the latest `v1.x.y` release at the time the workflow runs. Stratt follows semver: patch and minor releases within a major are backwards-compatible by policy. When you're ready to upgrade past a breaking change, bump the selector to `v2`.
-
-For fully reproducible CI (lockfile-level), use an exact version:
+For high-security pipelines, pin the action itself to a commit SHA (tags are mutable) and let Dependabot or Renovate bump it:
 
 ```yaml
-          curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v1.14.1
+      - uses: stratt-sh/setup-stratt@<sha>  # v0.3.0
 ```
 
 ### Required permissions
 
-The install script verifies the release attestation via `gh attestation verify`, which fetches the bundle from GitHub's attestations API. That call requires the workflow job to grant:
+`setup-stratt` verifies the release attestation via `gh attestation verify`, which fetches the bundle from GitHub's attestations API. That call requires the workflow job to grant:
 
 ```yaml
 permissions:
@@ -76,9 +76,23 @@ permissions:
 
 (`id-token: write` is **not** required — that permission is for *producing* attestations or for OIDC-based external auth. Verification is read-only on GitHub's side; the Sigstore signature check happens locally against the public-good trust root.)
 
-If your repo defaults to the GitHub-restricted permission set (or your org pins permissions to read-only), the verification step will fail with a 403 from the attestations endpoint. The install script falls back to soft-skip in that case unless `--require-attestation` is set, in which case the job fails fast — which is what you usually want, since silently dropping attestation verification defeats the point.
+If your org policy forbids granting `attestations: read`, set `require-attestation: false` on the action — the job then soft-skips attestation verification, but checksum verification against `checksums.txt` still runs unconditionally:
 
-If you can't grant `attestations: read` for policy reasons, run the installer with `--skip-attestation` and document the decision in your repo. SHA256 against `checksums.txt` is still verified.
+```yaml
+      - uses: stratt-sh/setup-stratt@v0
+        with:
+          require-attestation: false
+```
+
+### Other CI systems
+
+Outside GitHub Actions (GitLab CI, CircleCI, self-hosted images, …) use the [install script](#install) directly. Pin a major so you get fixes but never a breaking change:
+
+```sh
+curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v0
+```
+
+The script's own attestation behavior — `--require-attestation` to fail hard, `--skip-attestation` to opt out — is covered under [Attestation verification](#attestation-verification) below.
 
 ## What stratt skips in CI
 
