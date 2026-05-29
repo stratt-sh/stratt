@@ -50,7 +50,7 @@ Resolved commands:
   all      → format + lint + test + docs
 ```
 
-`doctor` is your trust anchor: what it shows is exactly what every subcommand will do in this repo.
+What `doctor` shows is exactly what each subcommand will run in this repo.
 
 ## 3. Run universal commands
 

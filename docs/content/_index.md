@@ -5,9 +5,11 @@ toc: false
 
 # stratt
 
-> A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps.
+> One set of commands for every repo, whatever language it's in.
 
-Named for **Eva Stratt**, Project Director of the Petrova Taskforce in Andy Weir's *Project Hail Mary* — given near-unilateral authority to do whatever was necessary. `stratt` takes the same posture toward your repos: one decisive operator that cuts through Makefile sprawl, runs the universal targets, manages release versions, and ships deploys.
+`build`, `test`, `lint`, `release`, `deploy` — the same commands in a Go repo, a Python repo, or a PHP one. Stratt detects the toolchain and dispatches; you don't think about it.
+
+Named for **Eva Stratt**, Project Director of the Petrova Taskforce in Andy Weir's *Project Hail Mary*.
 
 {{< callout type="warning" >}}
 **Pre-alpha.** Stratt is in active early development. Expect breaking changes until v1.0.
@@ -31,7 +33,7 @@ Two Go projects in your fleet can have completely different release flows (one b
 
 ## Highlights
 
-- **One vocabulary, every stack.** Go, Python+UV, PHP, Docker, Kustomize, MkDocs/Sphinx. Multi-stack repos are normal.
+- **One vocabulary, every stack.** Go, Python+UV, Node+npm, PHP, Docker, Kustomize, MkDocs, Sphinx, Hugo, GitHub Actions, and Ansible (collections, roles, playbooks). Multi-stack repos are normal.
 - **Zero config when possible.** Detection drives behavior. `stratt.toml` is optional.
 - **Single static binary.** No Python or Node runtime required to use stratt itself.
 - **Secure self-update.** Sigstore artifact attestations verified on every update. Homebrew users get an automatic dispatch to `brew upgrade`.
@@ -65,7 +67,7 @@ cd <any-repo-you-have>
 stratt doctor
 ```
 
-`doctor` reports the detected stacks and the resolved backend for every universal command. That's stratt's contract: what doctor shows is what every command will do.
+`doctor` reports the detected stacks and the resolved backend for every universal command. What it shows is exactly what each command will run.
 
 {{< cards >}}
 {{< card link="/docs/quick-start" title="Quick Start" subtitle="Five minutes from install to first release" >}}

@@ -30,7 +30,7 @@ startLevel = 2
 # ---------------------------------------------------------------------------
 
 [params]
-description = "A polyglot task runner that replaces Makefiles, manages release versions, and handles Kustomize image bumps."
+description = "One set of commands for every repo, whatever language it's in — build, test, lint, release, deploy, with the toolchain detected for you."
 
 [params.navbar]
 displayTitle = true

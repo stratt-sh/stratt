@@ -4,11 +4,9 @@ linkTitle: Docs
 weight: 1
 ---
 
-# stratt docs
+# Documentation
 
-The full reference will land as the tool matures. For now: a single page to get you running.
+- [Quick Start](/docs/quick-start) — install to first release in five minutes.
+- [Using stratt in CI](/docs/ci) — install script, GitHub Actions, and what stratt skips on a runner.
 
-- [Quick Start](/docs/quick-start) — five minutes from install to first release.
-- [Using stratt in CI](/docs/ci) — install script, GitHub Actions snippet, what stratt skips in CI.
-
-In the meantime, `stratt help` and `stratt doctor` are the canonical sources of truth from inside any repo.
+From inside any repo, `stratt help` and `stratt doctor` answer "what will this do here?"
