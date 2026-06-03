@@ -1,8 +1,12 @@
 # Triggered by pushing a semver tag.  GoReleaser builds the cross-
 # platform archives, publishes the GitHub Release, and pushes the
-# Homebrew formula to stratt-sh/homebrew-tap.  Each binary gets a
+# Homebrew cask to stratt-sh/homebrew-tap.  Each binary gets a
 # Sigstore artifact attestation — the trust anchor `stratt self update`
 # verifies against.
+#
+# Post-publish verification lives in a separate workflow, smoke.yml,
+# which installs the released cask the way a user would and asserts it
+# runs and detects itself correctly.
 
 name: release
 

@@ -51,6 +51,11 @@ type Result struct {
 	BackupPath       string
 	AttestationOK    bool
 	AttestationError error
+	// AlreadyCurrent is true when the running version is already the
+	// latest, so nothing was downloaded or swapped.  This is a
+	// successful no-op, not an error — callers should report it as
+	// "up to date", not fail.
+	AlreadyCurrent bool
 }
 
 // CheckOnly returns the latest release and whether it's a strict
@@ -106,7 +111,12 @@ func Apply(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	if !IsNewer(rel.TagName, opts.CurrentVersion) {
-		return nil, fmt.Errorf("already at %s (latest is %s)", opts.CurrentVersion, rel.TagName)
+		// Already on the latest release: a successful no-op, not an error.
+		return &Result{
+			AlreadyCurrent:  true,
+			NewVersion:      strings.TrimPrefix(rel.TagName, "v"),
+			PreviousVersion: opts.CurrentVersion,
+		}, nil
 	}
 
 	asset := PickAsset(rel, PlatformAssetSuffix())

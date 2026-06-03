@@ -77,6 +77,10 @@ The update is gated on:
 			if err != nil {
 				return err
 			}
+			if res.AlreadyCurrent {
+				fmt.Fprintf(cmd.OutOrStdout(), "Already up to date (%s).\n", b.Version)
+				return nil
+			}
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"\nUpdated stratt %s → %s\nPrevious binary preserved at %s\n",
 				res.PreviousVersion, res.NewVersion, res.BackupPath)
@@ -216,6 +220,16 @@ func newSelfCheckCmd(b BuildInfo) *cobra.Command {
 		Short: "Check whether a newer stratt release is available (does not install)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			out := cmd.OutOrStdout()
+
+			// Report the detected install method first, before any
+			// fallible/network work.  This line is the contract the
+			// release smoke test asserts on: it must read "homebrew"
+			// for a brew-installed binary, or `self update` would try
+			// to overwrite a brew-managed binary (R4.7).
+			kind, _ := update.DetectInstall()
+			fmt.Fprintf(out, "Install method: %s\n", kind)
+
 			latest, newer, err := update.CheckOnly(cmd.Context(), update.Options{
 				Repo:           strattUpstreamRepo,
 				Channel:        channel,
@@ -225,17 +239,16 @@ func newSelfCheckCmd(b BuildInfo) *cobra.Command {
 				return err
 			}
 			if !newer {
-				fmt.Fprintf(cmd.OutOrStdout(), "Up to date (%s).\n", b.Version)
+				fmt.Fprintf(out, "Up to date (%s).\n", b.Version)
 				return nil
 			}
-			kind, _ := update.DetectInstall()
 			switch kind {
 			case update.InstallHomebrew:
-				fmt.Fprintf(cmd.OutOrStdout(),
+				fmt.Fprintf(out,
 					"Update available: %s — run `brew upgrade %s` (or `stratt self update`, which dispatches to brew)\n",
 					latest.TagName, strattBrewFormula)
 			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "Update available: %s — run `stratt self update`\n", latest.TagName)
+				fmt.Fprintf(out, "Update available: %s — run `stratt self update`\n", latest.TagName)
 			}
 			return nil
 		},

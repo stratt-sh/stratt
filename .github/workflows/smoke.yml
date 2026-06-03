@@ -1,0 +1,142 @@
+# Post-release smoke test: install stratt the way users do and prove the
+# published artifacts actually run and detect themselves correctly.
+#
+# This is the check that was missing when the formula→cask migration
+# stranded `brew upgrade` and the binary misdetected its cask install as
+# a direct one.  It is *detective*, not preventive — the release is
+# already public by the time `release:published` fires — but it turns a
+# silent break into an immediate red X (and an Actions failure alert)
+# instead of waiting for a user to hit it.
+#
+# Triggers:
+#   - release: published  → runs automatically after GoReleaser publishes
+#   - workflow_dispatch    → run by hand against the latest tag anytime
+#
+# Platform split, by necessity:
+#   - macOS  → Homebrew cask (the cask is macOS-only; `brew install
+#              --cask` errors on Linux).
+#   - Linux  → direct tarball download. This is the CI install path on
+#              Linux, since linuxbrew can't install casks. If brew-on-
+#              Linux is ever needed it requires a formula, which collides
+#              with the cask name — prefer the tarball/install.sh in CI.
+
+name: smoke
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+jobs:
+  brew-cask:
+    name: brew install (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Resolve the version under test
+        id: ver
+        run: |
+          # release event → the tag; manual dispatch → latest published tag.
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "Testing $tag (version ${tag#v})"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install the published cask (wait for the tap to land)
+        env:
+          WANT: ${{ steps.ver.outputs.version }}
+        run: |
+          # The cask is pushed to a SEPARATE repo (the tap) during the
+          # same GoReleaser run, so it can lag the release:published event
+          # by a few seconds. Poll the tap until it reports the expected
+          # version, then install — bounded wait, no fixed-sleep guess,
+          # and no race. Fails loudly only if the tap never publishes.
+          brew tap stratt-sh/tap
+          for attempt in $(seq 1 18); do   # up to ~3 min (18 × 10s)
+            brew update >/dev/null 2>&1 || true
+            if brew info --cask stratt-sh/tap/stratt 2>/dev/null | head -1 | grep -qF "$WANT"; then
+              echo "tap is at $WANT (attempt $attempt)"
+              break
+            fi
+            echo "attempt $attempt: tap not yet at $WANT; waiting 10s…"
+            sleep 10
+          done
+          brew install --cask stratt-sh/tap/stratt
+
+      - name: Assert the installed version matches the release
+        run: |
+          want='${{ steps.ver.outputs.version }}'
+          got="$(stratt version)"
+          echo "stratt version => $got (want to contain $want)"
+          echo "$got" | grep -qF "$want" \
+            || { echo "::error::installed version '$got' does not contain '$want' (tap never published it within the wait?)"; exit 1; }
+
+      - name: Assert it detects itself as a Homebrew install
+        run: |
+          # `self check` prints "Install method: ..." before its network
+          # call, so this assertion holds even if the GitHub API flakes:
+          # the pipe's exit status is grep's, not stratt's.  A cask that
+          # reads "direct" here means `self update` would try to
+          # overwrite a brew-managed binary (R4.7) — fail loudly.
+          stratt self check 2>&1 | grep -qF 'Install method: homebrew' \
+            || { echo "::error::stratt did not detect a Homebrew install (self update would clobber a brew-managed binary)"; exit 1; }
+
+      - name: Assert self update routes to brew rather than self-overwriting
+        run: |
+          # In --ci mode the brew path prints the brew command (or
+          # "up to date") and exits 0 without ever touching the binary.
+          out="$(stratt self update --ci 2>&1)" || true
+          echo "$out"
+          echo "$out" | grep -qiE 'brew upgrade|up to date' \
+            || { echo "::error::self update --ci did not take the Homebrew path"; exit 1; }
+
+  linux-tarball:
+    name: tarball install (Linux / CI path)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the version under test
+        id: ver
+        run: |
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "Testing $tag (version ${tag#v})"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download and extract the linux amd64 archive
+        run: |
+          tag='${{ steps.ver.outputs.tag }}'
+          ver='${{ steps.ver.outputs.version }}'
+          asset="stratt_${ver}_linux_amd64.tar.gz"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir .
+          tar -xzf "$asset"
+          ./stratt version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assert the version matches the release
+        run: |
+          want='${{ steps.ver.outputs.version }}'
+          got="$(./stratt version)"
+          echo "stratt version => $got (want to contain $want)"
+          echo "$got" | grep -qF "$want" \
+            || { echo "::error::version mismatch: '$got' does not contain '$want'"; exit 1; }
+
+      - name: Assert it detects itself as a direct (non-brew) install
+        run: |
+          # A tarball binary lives outside any brew prefix, so it must
+          # self-detect as 'direct' — otherwise self update would refuse
+          # to update a binary it could update.  Guards classify() in the
+          # other direction from the cask check above.
+          ./stratt self check 2>&1 | grep -qF 'Install method: direct' \
+            || { echo "::error::tarball binary should self-detect as 'direct'"; exit 1; }

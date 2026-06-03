@@ -16,12 +16,33 @@ import (
 // --- install path detection ---
 
 func TestDetectInstallHomebrewPrefixes(t *testing.T) {
-	// We can't actually move our binary, but we can verify the prefixes
-	// table accepts known shapes.  The unit-testable surface here is the
-	// table itself.
-	for _, prefix := range homebrewCellarPrefixes {
+	for _, prefix := range homebrewPrefixes {
 		if !strings.HasSuffix(prefix, "/") {
 			t.Errorf("prefix %q should end with /", prefix)
+		}
+	}
+}
+
+func TestClassify(t *testing.T) {
+	cases := []struct {
+		path string
+		want InstallKind
+	}{
+		// Formula installs.
+		{"/opt/homebrew/Cellar/stratt/0.16.1/bin/stratt", InstallHomebrew},
+		{"/usr/local/Cellar/stratt/0.16.1/bin/stratt", InstallHomebrew},
+		// Cask installs (stratt's actual shape — the path that regressed).
+		{"/opt/homebrew/Caskroom/stratt/0.16.1/stratt", InstallHomebrew},
+		{"/usr/local/Caskroom/stratt/0.16.1/stratt", InstallHomebrew},
+		// Linuxbrew (both formula and cask live under here).
+		{"/home/linuxbrew/.linuxbrew/Cellar/stratt/0.16.1/bin/stratt", InstallHomebrew},
+		// Direct installs.
+		{"/usr/local/bin/stratt", InstallDirect},
+		{"/home/zeb/.local/bin/stratt", InstallDirect},
+	}
+	for _, tc := range cases {
+		if got := classify(tc.path); got != tc.want {
+			t.Errorf("classify(%q) = %v, want %v", tc.path, got, tc.want)
 		}
 	}
 }
