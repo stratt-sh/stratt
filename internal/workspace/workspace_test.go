@@ -187,3 +187,31 @@ func TestFindReposMissingRoot(t *testing.T) {
 		t.Error("expected error for missing root")
 	}
 }
+
+func TestCloneURL(t *testing.T) {
+	r := Remote{Host: "github.com", Org: "stratt-sh", Repo: "stratt"}
+	cases := []struct {
+		protocol string
+		want     string
+	}{
+		{ProtocolSSH, "git@github.com:stratt-sh/stratt.git"},
+		{ProtocolHTTPS, "https://github.com/stratt-sh/stratt.git"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.protocol, func(t *testing.T) {
+			got, err := CloneURL(tc.protocol, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("CloneURL(%q) = %q, want %q", tc.protocol, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCloneURLUnknownProtocol(t *testing.T) {
+	if _, err := CloneURL("git", Remote{Host: "h", Org: "o", Repo: "r"}); err == nil {
+		t.Error("expected error for unknown protocol")
+	}
+}

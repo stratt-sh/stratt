@@ -243,3 +243,29 @@ func expandHome(p string) (string, error) {
 // layout empty.  Matches `ghq`'s default and keeps repos addressable
 // across hosts.
 const DefaultLayout = "{host}/{org}/{repo}"
+
+// Clone protocols accepted by CloneURL and stored in
+// [workspace].protocol.
+const (
+	ProtocolSSH   = "ssh"
+	ProtocolHTTPS = "https"
+)
+
+// CloneURL builds the canonical `git clone` URL for a remote using the
+// given protocol:
+//
+//	ssh   -> git@host:org/repo.git
+//	https -> https://host/org/repo.git
+//
+// It is used to rewrite a bare URL (one the user pasted without a
+// trailing `.git`) into the form matching their preferred protocol.
+func CloneURL(protocol string, r Remote) (string, error) {
+	switch protocol {
+	case ProtocolSSH:
+		return fmt.Sprintf("git@%s:%s/%s.git", r.Host, r.Org, r.Repo), nil
+	case ProtocolHTTPS:
+		return fmt.Sprintf("https://%s/%s/%s.git", r.Host, r.Org, r.Repo), nil
+	default:
+		return "", fmt.Errorf("unknown clone protocol %q (want %q or %q)", protocol, ProtocolSSH, ProtocolHTTPS)
+	}
+}

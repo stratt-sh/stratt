@@ -41,9 +41,14 @@ Example:
   [workspace]
   root = "~/code"
   layout = "{host}/{org}/{repo}"   # default
+  protocol = "ssh"                 # or "https"
 
   $ stratt clone https://github.com/stratt-sh/stratt
-  # clones into ~/code/github.com/stratt-sh/stratt
+  # clones git@github.com:stratt-sh/stratt.git into ~/code/github.com/stratt-sh/stratt
+
+A URL that already ends in .git is treated as the canonical clone URL and
+used verbatim. A bare URL (no .git) is rewritten to your preferred
+protocol from [workspace].protocol; stratt prompts for it on first use.
 
 Pass an explicit target as the second argument to bypass layout resolution.
 All other flags are forwarded verbatim to ` + "`git clone`" + `.
@@ -78,12 +83,9 @@ func runClone(cmd *cobra.Command, args []string) error {
 		flags = rest
 	}
 
-	if target == "" {
-		t, err := resolveCloneTarget(cmd, url)
-		if err != nil {
-			return err
-		}
-		target = t
+	cloneURL, target, err := resolveClone(cmd, url, target)
+	if err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -93,7 +95,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 	fmt.Fprint(cmd.OutOrStdout(), styleFrom(cmd.Context()).Progress("cloning into "+target))
 
 	gitArgs := append([]string{"clone"}, flags...)
-	gitArgs = append(gitArgs, url, target)
+	gitArgs = append(gitArgs, cloneURL, target)
 	g := exec.CommandContext(cmd.Context(), "git", gitArgs...)
 	g.Stdout = cmd.OutOrStdout()
 	g.Stderr = cmd.ErrOrStderr()
@@ -104,30 +106,160 @@ func runClone(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func resolveCloneTarget(cmd *cobra.Command, url string) (string, error) {
+// resolveClone determines the URL to hand to `git clone` and the
+// directory it should land in.
+//
+//   - An explicit target (the second positional arg) is used verbatim.
+//   - A URL already ending in `.git` is the user's signal that they
+//     chose the protocol on purpose, so it is cloned as-is.
+//   - A bare URL is rewritten to the user's preferred protocol from
+//     [workspace].protocol, prompting and saving on first use.
+//
+// Config (and any first-run prompting) is only touched when actually
+// needed: a computed target needs root/layout; a URL rewrite needs the
+// protocol.  The explicit-target + `.git` form requires neither.
+func resolveClone(cmd *cobra.Command, rawURL, explicitTarget string) (cloneURL, target string, err error) {
+	needTarget := explicitTarget == ""
+	needRewrite := !endsWithGit(rawURL)
+
+	if !needTarget && !needRewrite {
+		return rawURL, explicitTarget, nil
+	}
+
 	usr, err := config.LoadUser()
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+	ws := usr.Workspace
+
+	remote, parseErr := workspace.ParseRemote(rawURL)
+	// A computed target requires a parseable remote — preserve the old
+	// hard failure.  For a rewrite-only case, an unparseable URL just
+	// falls back to cloning it verbatim.
+	if needTarget && parseErr != nil {
+		return "", "", parseErr
+	}
+	if needRewrite && parseErr != nil {
+		needRewrite = false
 	}
 
-	if usr == nil || usr.Workspace == nil || usr.Workspace.Root == "" {
-		ws, err := setupWorkspaceInteractive(cmd)
+	// First-run workspace setup, only when we need a layout.
+	if needTarget && (ws == nil || ws.Root == "") {
+		ws, err = setupWorkspaceInteractive(cmd)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		usr = &config.User{Workspace: ws}
 	}
 
-	remote, err := workspace.ParseRemote(url)
+	target = explicitTarget
+	if needTarget {
+		layout := ws.Layout
+		if layout == "" {
+			layout = workspace.DefaultLayout
+		}
+		target, err = workspace.Resolve(ws.Root, layout, remote)
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	cloneURL = rawURL
+	if needRewrite {
+		proto, err := ensureProtocol(cmd, ws)
+		if err != nil {
+			return "", "", err
+		}
+		cloneURL, err = workspace.CloneURL(proto, remote)
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	return cloneURL, target, nil
+}
+
+// endsWithGit reports whether a URL already carries a trailing `.git`
+// (ignoring a trailing slash), the signal that it is a canonical clone
+// URL stratt should pass through untouched.
+func endsWithGit(rawURL string) bool {
+	return strings.HasSuffix(strings.TrimRight(rawURL, "/"), ".git")
+}
+
+// ensureProtocol returns the user's preferred clone protocol, prompting
+// for and persisting it on first use.  ws may be nil (no [workspace] at
+// all) or carry an empty Protocol; both prompt.  On success the choice
+// is written back into ws so a single invocation never prompts twice.
+func ensureProtocol(cmd *cobra.Command, ws *config.UserWorkspace) (string, error) {
+	if ws != nil && ws.Protocol != "" {
+		return ws.Protocol, nil
+	}
+
+	cfgPath, _ := config.UserConfigPath()
+	if !stdinIsTerminal(cmd) {
+		return "", fmt.Errorf(
+			"no clone protocol configured in %s\n"+
+				"add one (no terminal available to prompt), or pass a URL ending in .git:\n"+
+				"  [workspace]\n  protocol = \"ssh\"   # or \"https\"",
+			cfgPath,
+		)
+	}
+
+	out := cmd.OutOrStdout()
+	in := bufio.NewReader(cmd.InOrStdin())
+
+	proto, err := promptProtocol(out, in)
 	if err != nil {
 		return "", err
 	}
 
-	layout := usr.Workspace.Layout
-	if layout == "" {
-		layout = workspace.DefaultLayout
+	if err := config.SetUserWorkspaceProtocol(cfgPath, proto); err != nil {
+		return "", fmt.Errorf("write %s: %w", cfgPath, err)
 	}
-	return workspace.Resolve(usr.Workspace.Root, layout, remote)
+	if ws != nil {
+		ws.Protocol = proto
+	}
+	fmt.Fprint(out, styleFrom(cmd.Context()).Success("Saved clone protocol to "+cfgPath))
+	fmt.Fprintln(out)
+	return proto, nil
+}
+
+var protocolChoices = []struct {
+	label    string
+	protocol string
+	example  string
+}{
+	{"ssh", workspace.ProtocolSSH, "git@github.com:org/repo.git"},
+	{"https", workspace.ProtocolHTTPS, "https://github.com/org/repo.git"},
+}
+
+func promptProtocol(out io.Writer, in *bufio.Reader) (string, error) {
+	fmt.Fprintln(out, "\nPreferred clone protocol (used for URLs without a trailing .git):")
+	for i, c := range protocolChoices {
+		fmt.Fprintf(out, "  %d) %-6s e.g. %s\n", i+1, c.label, c.example)
+	}
+	for {
+		fmt.Fprintf(out, "Choose [1]: ")
+		line, err := in.ReadString('\n')
+		if err != nil && line == "" {
+			return "", fmt.Errorf("read protocol choice: %w", err)
+		}
+		s := strings.TrimSpace(line)
+		if s == "" {
+			return protocolChoices[0].protocol, nil
+		}
+		if n, err := strconv.Atoi(s); err == nil {
+			if n >= 1 && n <= len(protocolChoices) {
+				return protocolChoices[n-1].protocol, nil
+			}
+		} else {
+			for _, c := range protocolChoices {
+				if strings.EqualFold(s, c.label) {
+					return c.protocol, nil
+				}
+			}
+		}
+		fmt.Fprintf(out, "  (please enter 1 or 2, or ssh/https)\n")
+	}
 }
 
 // setupWorkspaceInteractive prompts the user for workspace.root and

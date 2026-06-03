@@ -33,10 +33,13 @@ type User struct {
 // UserWorkspace configures `stratt clone`'s on-disk layout.  `Root` is
 // the directory under which cloned repos are placed (e.g. "~/code").
 // `Layout` is a template containing some combination of {host}, {org},
-// and {repo}; defaults to "{host}/{org}/{repo}" when empty.
+// and {repo}; defaults to "{host}/{org}/{repo}" when empty.  `Protocol`
+// is the preferred clone protocol ("ssh" or "https") used to rewrite a
+// bare URL into a canonical clone URL; empty means "ask on first use".
 type UserWorkspace struct {
-	Root   string
-	Layout string
+	Root     string
+	Layout   string
+	Protocol string
 }
 
 // UserUpdate — per-user update behavior (R6.7).
@@ -142,8 +145,9 @@ func LoadUser() (*User, error) {
 	}
 	if raw.Workspace != nil {
 		u.Workspace = &UserWorkspace{
-			Root:   raw.Workspace.Root,
-			Layout: raw.Workspace.Layout,
+			Root:     raw.Workspace.Root,
+			Layout:   raw.Workspace.Layout,
+			Protocol: raw.Workspace.Protocol,
 		}
 	}
 	return u, nil
@@ -163,8 +167,9 @@ type rawUser struct {
 }
 
 type rawUserWorkspace struct {
-	Root   string `toml:"root"`
-	Layout string `toml:"layout"`
+	Root     string `toml:"root"`
+	Layout   string `toml:"layout"`
+	Protocol string `toml:"protocol"`
 }
 
 type rawUserUpdate struct {
