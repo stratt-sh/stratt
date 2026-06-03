@@ -111,7 +111,7 @@ func TestIsNewer(t *testing.T) {
 
 // --- LatestRelease against a stub server ---
 
-func TestLatestReleaseStable(t *testing.T) {
+func TestLatestReleaseDefault(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
 			http.NotFound(w, r)
@@ -136,7 +136,7 @@ func TestLatestReleaseStable(t *testing.T) {
 		}
 		return http.DefaultTransport.RoundTrip(req)
 	})
-	rel, err := LatestRelease(context.Background(), c, "x/y", ChannelStable)
+	rel, err := LatestRelease(context.Background(), c, "x/y", ChannelDefault)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,9 +184,39 @@ func TestLatestRelease404(t *testing.T) {
 		}
 		return http.DefaultTransport.RoundTrip(req)
 	})}
-	_, err := LatestRelease(context.Background(), c, "x/y", ChannelStable)
+	_, err := LatestRelease(context.Background(), c, "x/y", ChannelDefault)
 	if err == nil {
 		t.Fatal("expected error on 404")
+	}
+}
+
+func TestNormalizeChannel(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"", ChannelDefault, false},        // empty → default
+		{"default", ChannelDefault, false}, // canonical
+		{"stable", ChannelDefault, false},  // deprecated alias
+		{"prerelease", ChannelPrerelease, false},
+		{"bogus", "", true},  // typo fails loudly
+		{"STABLE", "", true}, // case-sensitive: not the alias
+	}
+	for _, tc := range cases {
+		got, err := NormalizeChannel(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("NormalizeChannel(%q): expected error, got %q", tc.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("NormalizeChannel(%q): unexpected error %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Errorf("NormalizeChannel(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 

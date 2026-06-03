@@ -130,14 +130,20 @@ type FileChange struct {
 	ReplaceAll bool
 }
 
-// Compute returns a Plan for bumping cfg by kind.  The plan is
-// deterministic — calling Compute multiple times yields identical output
-// — and side-effect-free, so callers can show a preview before applying.
+// Compute returns a Plan for bumping cfg by kind (a normal release).
+// It is a thin wrapper over ComputeAction; see that for prereleases.
 func Compute(cfg *Config, kind Kind, root string) (*Plan, error) {
+	return ComputeAction(cfg, Action{Kind: kind, Op: OpRelease}, root)
+}
+
+// ComputeAction returns a Plan for applying action to cfg.  The plan is
+// deterministic — calling it multiple times yields identical output —
+// and side-effect-free, so callers can show a preview before applying.
+func ComputeAction(cfg *Config, action Action, root string) (*Plan, error) {
 	if cfg.CurrentVersion == "" {
 		return nil, errors.New("bump config has no current_version")
 	}
-	next, err := bumpSemver(cfg.CurrentVersion, kind)
+	next, err := nextVersion(cfg.CurrentVersion, action)
 	if err != nil {
 		return nil, err
 	}
@@ -288,4 +294,212 @@ var semverRE = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 // IsValid reports whether v is a well-formed MAJOR.MINOR.PATCH string.
 func IsValid(v string) bool {
 	return semverRE.MatchString(strings.TrimPrefix(v, "v"))
+}
+
+// --- Prerelease support (R2.4: first-class prereleases) ---
+
+// PreOp identifies a version transition beyond a plain semver bump.
+type PreOp int
+
+const (
+	OpRelease PreOp = iota // normal release: bump Kind, drop any prerelease
+	OpStart                // start a prerelease: bump Kind core, then -<label>.1
+	OpIterate              // bump the prerelease counter (…-rc.1 → …-rc.2)
+	OpPromote              // finalize: drop the prerelease suffix
+	OpRelabel              // switch prerelease label, reset counter to 1
+)
+
+// Action fully specifies one version transition.  Kind is the base bump
+// (used by OpRelease and OpStart); Label is the prerelease identifier
+// (used by OpStart and OpRelabel; empty defaults to DefaultPreLabel).
+type Action struct {
+	Kind  Kind
+	Op    PreOp
+	Label string
+}
+
+// DefaultPreLabel is the prerelease identifier used when none is given.
+const DefaultPreLabel = "rc"
+
+// preLabelRE constrains prerelease labels to an alpha-led alphanumeric
+// token (rc, beta, alpha, rc2…) so the serialized X.Y.Z-<label>.<n> form
+// round-trips unambiguously.
+var preLabelRE = regexp.MustCompile(`^[A-Za-z][0-9A-Za-z]*$`)
+
+// IsPrerelease reports whether v is a stratt-emitted prerelease, i.e. the
+// strict X.Y.Z-<label>.<N> form.  Loose suffixes (e.g. "1.2.3-dev") are
+// not recognized as iterable prereleases.
+func IsPrerelease(v string) bool {
+	_, _, _, ok := splitPrerelease(v)
+	return ok
+}
+
+// splitPrerelease parses "X.Y.Z-<label>.<n>" into its parts.  ok is false
+// for any version that isn't exactly that shape.
+func splitPrerelease(v string) (core, label string, n int, ok bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	dash := strings.IndexByte(v, '-')
+	if dash < 0 {
+		return "", "", 0, false
+	}
+	core = v[:dash]
+	rest := v[dash+1:]
+	dot := strings.LastIndexByte(rest, '.')
+	if dot < 0 {
+		return "", "", 0, false
+	}
+	label = rest[:dot]
+	num, err := strconv.Atoi(rest[dot+1:])
+	if err != nil || num < 1 {
+		return "", "", 0, false
+	}
+	if !semverRE.MatchString(core) || !preLabelRE.MatchString(label) {
+		return "", "", 0, false
+	}
+	return core, label, num, true
+}
+
+// hasSuffix reports whether v carries any prerelease/build suffix.
+func hasSuffix(v string) bool {
+	return strings.ContainsAny(strings.TrimPrefix(strings.TrimSpace(v), "v"), "-+")
+}
+
+// nextVersion computes the new version string for action against current.
+func nextVersion(current string, a Action) (string, error) {
+	switch a.Op {
+	case OpRelease:
+		return bumpSemver(current, a.Kind)
+
+	case OpStart:
+		if hasSuffix(current) {
+			return "", fmt.Errorf("already on a prerelease (%s); use iterate, promote, or relabel", current)
+		}
+		core, err := bumpSemver(current, a.Kind)
+		if err != nil {
+			return "", err
+		}
+		label := a.Label
+		if label == "" {
+			label = DefaultPreLabel
+		}
+		if !preLabelRE.MatchString(label) {
+			return "", fmt.Errorf("invalid prerelease label %q (want an alpha-led alphanumeric like rc, beta, alpha)", label)
+		}
+		return fmt.Sprintf("%s-%s.1", core, label), nil
+
+	case OpIterate:
+		core, label, n, ok := splitPrerelease(current)
+		if !ok {
+			return "", errNotPrerelease(current)
+		}
+		return fmt.Sprintf("%s-%s.%d", core, label, n+1), nil
+
+	case OpPromote:
+		core, _, _, ok := splitPrerelease(current)
+		if !ok {
+			return "", errNotPrerelease(current)
+		}
+		return core, nil
+
+	case OpRelabel:
+		core, _, _, ok := splitPrerelease(current)
+		if !ok {
+			return "", errNotPrerelease(current)
+		}
+		label := a.Label
+		if label == "" {
+			return "", errors.New("relabel needs a label (e.g. `relabel beta`)")
+		}
+		if !preLabelRE.MatchString(label) {
+			return "", fmt.Errorf("invalid prerelease label %q (want an alpha-led alphanumeric like rc, beta, alpha)", label)
+		}
+		return fmt.Sprintf("%s-%s.1", core, label), nil
+	}
+	return "", fmt.Errorf("unknown release op %d", a.Op)
+}
+
+func errNotPrerelease(current string) error {
+	return fmt.Errorf("%s is not a prerelease; start one first (e.g. `stratt release preminor`)", current)
+}
+
+// ParseAction interprets release verb tokens — the words after
+// `stratt release`, or those typed at the interactive prompt — plus the
+// value of the --pre flag, into an Action.
+//
+// ok is false (with a nil error) when no verb was supplied, signaling the
+// caller to prompt.  pre is "" when --pre was absent, "rc" for a bare
+// --pre (via the flag's NoOptDefVal), or an explicit label.
+//
+// Accepted spellings (all equivalent for starting a prerelease):
+//
+//	preminor                 minor,rc                 minor --pre
+//	preminor --pre=beta      minor,beta               minor --pre=beta
+//
+// plus iterate, promote, and relabel <label> for an in-flight prerelease.
+func ParseAction(tokens []string, pre string) (Action, bool, error) {
+	var t []string
+	for _, x := range tokens {
+		if x = strings.TrimSpace(x); x != "" {
+			t = append(t, x)
+		}
+	}
+	if len(t) == 0 {
+		if pre != "" {
+			return Action{}, false, errors.New("--pre needs a base bump (e.g. `release minor --pre` or `release preminor`)")
+		}
+		return Action{}, false, nil // caller should prompt
+	}
+	verb := strings.ToLower(t[0])
+
+	// Chained form: minor,rc / patch,beta.
+	if base, label, found := strings.Cut(verb, ","); found {
+		k, err := KindFromString(base)
+		if err != nil {
+			return Action{}, false, err
+		}
+		if pre != "" && pre != label {
+			return Action{}, false, fmt.Errorf("conflicting prerelease labels: %q vs --pre=%q", label, pre)
+		}
+		if label == "" {
+			label = DefaultPreLabel
+		}
+		return Action{Kind: k, Op: OpStart, Label: label}, true, nil
+	}
+
+	switch verb {
+	case "patch", "minor", "major":
+		k, _ := KindFromString(verb)
+		if pre != "" {
+			return Action{Kind: k, Op: OpStart, Label: pre}, true, nil
+		}
+		return Action{Kind: k, Op: OpRelease}, true, nil
+	case "prepatch", "preminor", "premajor":
+		k, _ := KindFromString(strings.TrimPrefix(verb, "pre"))
+		label := pre
+		if len(t) > 1 { // explicit positional label: `preminor beta`
+			label = strings.ToLower(t[1])
+		}
+		if label == "" {
+			label = DefaultPreLabel
+		}
+		return Action{Kind: k, Op: OpStart, Label: label}, true, nil
+	case "iterate":
+		if pre != "" {
+			return Action{}, false, errors.New("iterate takes no label; use `relabel <label>` to change it")
+		}
+		return Action{Op: OpIterate}, true, nil
+	case "promote":
+		return Action{Op: OpPromote}, true, nil
+	case "relabel":
+		label := pre
+		if len(t) > 1 {
+			label = strings.ToLower(t[1])
+		}
+		if label == "" {
+			return Action{}, false, errors.New("relabel needs a label (e.g. `relabel beta`)")
+		}
+		return Action{Op: OpRelabel, Label: label}, true, nil
+	}
+	return Action{}, false, fmt.Errorf(
+		"unknown release verb %q (want patch|minor|major | prepatch|preminor|premajor | iterate|promote|relabel)", t[0])
 }

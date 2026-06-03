@@ -681,3 +681,112 @@ description: "Has a colon: yes"
 		t.Errorf("got %+v", got)
 	}
 }
+
+func TestNextVersionPrerelease(t *testing.T) {
+	cases := []struct {
+		current string
+		action  Action
+		want    string
+		wantErr bool
+	}{
+		// start
+		{"0.17.0", Action{Kind: Minor, Op: OpStart, Label: "rc"}, "0.18.0-rc.1", false},
+		{"0.17.0", Action{Kind: Patch, Op: OpStart, Label: "rc"}, "0.17.1-rc.1", false},
+		{"0.17.0", Action{Kind: Major, Op: OpStart, Label: "rc"}, "1.0.0-rc.1", false},
+		{"0.17.0", Action{Kind: Minor, Op: OpStart, Label: "beta"}, "0.18.0-beta.1", false},
+		{"0.17.0", Action{Kind: Minor, Op: OpStart}, "0.18.0-rc.1", false}, // default label
+		// start refuses when already on a prerelease
+		{"0.18.0-rc.1", Action{Kind: Minor, Op: OpStart, Label: "rc"}, "", true},
+		// iterate
+		{"0.18.0-rc.1", Action{Op: OpIterate}, "0.18.0-rc.2", false},
+		{"0.18.0-rc.9", Action{Op: OpIterate}, "0.18.0-rc.10", false},
+		{"0.18.0", Action{Op: OpIterate}, "", true}, // not a prerelease
+		// promote
+		{"0.18.0-rc.2", Action{Op: OpPromote}, "0.18.0", false},
+		{"1.0.0-beta.3", Action{Op: OpPromote}, "1.0.0", false},
+		{"0.18.0", Action{Op: OpPromote}, "", true},
+		// relabel (resets counter)
+		{"0.18.0-rc.3", Action{Op: OpRelabel, Label: "beta"}, "0.18.0-beta.1", false},
+		{"0.18.0-rc.3", Action{Op: OpRelabel}, "", true},           // missing label
+		{"0.18.0", Action{Op: OpRelabel, Label: "beta"}, "", true}, // not a prerelease
+		// normal release still strips suffix (back-compat)
+		{"0.18.0-rc.2", Action{Kind: Patch, Op: OpRelease}, "0.18.1", false},
+		{"0.17.0", Action{Kind: Minor, Op: OpRelease}, "0.18.0", false},
+	}
+	for _, c := range cases {
+		got, err := nextVersion(c.current, c.action)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("nextVersion(%q, %+v): expected error, got %q", c.current, c.action, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("nextVersion(%q, %+v): unexpected error %v", c.current, c.action, err)
+		}
+		if got != c.want {
+			t.Errorf("nextVersion(%q, %+v) = %q, want %q", c.current, c.action, got, c.want)
+		}
+	}
+}
+
+func TestIsPrerelease(t *testing.T) {
+	yes := []string{"0.18.0-rc.1", "v1.0.0-beta.10", "2.3.4-alpha.2"}
+	no := []string{"0.18.0", "1.2.3-dev", "1.2.3-rc", "1.2.3-rc.0", "1.2.3+build", "garbage"}
+	for _, v := range yes {
+		if !IsPrerelease(v) {
+			t.Errorf("IsPrerelease(%q) = false, want true", v)
+		}
+	}
+	for _, v := range no {
+		if IsPrerelease(v) {
+			t.Errorf("IsPrerelease(%q) = true, want false", v)
+		}
+	}
+}
+
+func TestParseAction(t *testing.T) {
+	cases := []struct {
+		tokens []string
+		pre    string
+		want   Action
+		ok     bool
+		errs   bool
+	}{
+		{nil, "", Action{}, false, false}, // prompt
+		{[]string{"minor"}, "", Action{Kind: Minor, Op: OpRelease}, true, false},
+		{[]string{"preminor"}, "", Action{Kind: Minor, Op: OpStart, Label: "rc"}, true, false},
+		{[]string{"prepatch"}, "", Action{Kind: Patch, Op: OpStart, Label: "rc"}, true, false},
+		{[]string{"preminor", "beta"}, "", Action{Kind: Minor, Op: OpStart, Label: "beta"}, true, false}, // positional label
+		{[]string{"minor"}, "rc", Action{Kind: Minor, Op: OpStart, Label: "rc"}, true, false},            // --pre
+		{[]string{"minor"}, "beta", Action{Kind: Minor, Op: OpStart, Label: "beta"}, true, false},        // --pre=beta
+		{[]string{"minor,rc"}, "", Action{Kind: Minor, Op: OpStart, Label: "rc"}, true, false},           // chained
+		{[]string{"major,beta"}, "", Action{Kind: Major, Op: OpStart, Label: "beta"}, true, false},
+		{[]string{"iterate"}, "", Action{Op: OpIterate}, true, false},
+		{[]string{"promote"}, "", Action{Op: OpPromote}, true, false},
+		{[]string{"relabel", "beta"}, "", Action{Op: OpRelabel, Label: "beta"}, true, false},
+		{[]string{"relabel"}, "rc", Action{Op: OpRelabel, Label: "rc"}, true, false}, // label via --pre
+		// errors
+		{[]string{"relabel"}, "", Action{}, false, true},      // no label
+		{[]string{"bogus"}, "", Action{}, false, true},        // unknown verb
+		{[]string{"iterate"}, "rc", Action{}, false, true},    // iterate + label
+		{[]string{"minor,rc"}, "beta", Action{}, false, true}, // conflicting labels
+		{nil, "rc", Action{}, false, true},                    // --pre with no base
+	}
+	for _, c := range cases {
+		got, ok, err := ParseAction(c.tokens, c.pre)
+		if c.errs {
+			if err == nil {
+				t.Errorf("ParseAction(%v,%q): expected error, got %+v", c.tokens, c.pre, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("ParseAction(%v,%q): unexpected error %v", c.tokens, c.pre, err)
+			continue
+		}
+		if ok != c.ok || got != c.want {
+			t.Errorf("ParseAction(%v,%q) = %+v,%v, want %+v,%v", c.tokens, c.pre, got, ok, c.want, c.ok)
+		}
+	}
+}

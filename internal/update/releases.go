@@ -31,12 +31,31 @@ type Asset struct {
 	Size               int64  `json:"size"`
 }
 
-// ChannelStable / ChannelPrerelease control which releases are considered
-// "latest" by the update checker (R4.9 / R4.16).
+// ChannelDefault / ChannelPrerelease control which releases the update
+// checker considers (R4.9 / R4.16).  ChannelDefault tracks normal
+// (non-prerelease) releases; ChannelPrerelease also surfaces -rc/-beta
+// tags.  ("default" replaced the original "stable", which overpromised;
+// "stable" is still accepted as a deprecated alias — see NormalizeChannel.)
 const (
-	ChannelStable     = "stable"
+	ChannelDefault    = "default"
 	ChannelPrerelease = "prerelease"
 )
+
+// NormalizeChannel resolves a user-supplied channel name to canonical
+// form.  Empty means ChannelDefault.  "stable" is accepted as a
+// deprecated alias for ChannelDefault (its original name).  Anything
+// else is rejected so a typo fails loudly instead of silently meaning
+// "default".
+func NormalizeChannel(c string) (string, error) {
+	switch c {
+	case "", ChannelDefault, "stable":
+		return ChannelDefault, nil
+	case ChannelPrerelease:
+		return ChannelPrerelease, nil
+	default:
+		return "", fmt.Errorf("unknown release channel %q (want %q or %q)", c, ChannelDefault, ChannelPrerelease)
+	}
+}
 
 // LatestRelease returns the most recent release for repo (owner/name)
 // that matches channel.  Returns ErrNoRelease if no eligible release
@@ -48,18 +67,19 @@ func LatestRelease(ctx context.Context, client *http.Client, repo, channel strin
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	// `/releases/latest` excludes prereleases server-side; for prerelease
-	// channel users we have to enumerate.
-	if channel == ChannelStable {
-		return fetchLatestStable(ctx, client, repo)
+	// `/releases/latest` excludes prereleases server-side; only the
+	// prerelease channel enumerates.  Everything else (default, empty,
+	// or the deprecated "stable" alias) uses /releases/latest.
+	if channel == ChannelPrerelease {
+		return fetchLatestIncludingPrerelease(ctx, client, repo)
 	}
-	return fetchLatestIncludingPrerelease(ctx, client, repo)
+	return fetchLatestDefault(ctx, client, repo)
 }
 
 // ErrNoRelease indicates the API returned no eligible release.
 var ErrNoRelease = errors.New("no release found")
 
-func fetchLatestStable(ctx context.Context, client *http.Client, repo string) (*Release, error) {
+func fetchLatestDefault(ctx context.Context, client *http.Client, repo string) (*Release, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 	rel, err := fetchRelease(ctx, client, url)
 	if err != nil {

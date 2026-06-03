@@ -51,6 +51,14 @@ changelog:
       - Merge pull request
       - Merge branch
 
+# Mark prerelease tags (vX.Y.Z-rc.N) as GitHub prereleases.  This is what
+# makes `stratt release preminor` correct end-to-end: the binary's default
+# update channel reads /releases/latest, which excludes prereleases, and
+# the cask's `skip_upload: auto` also keys off this.  `auto` derives it
+# from the tag's semver prerelease component.
+release:
+  prerelease: auto
+
 # Homebrew tap publishing.
 #
 # Homebrew tap publishing.
@@ -69,6 +77,12 @@ changelog:
 # unsigned binary just works — no Gatekeeper right-click dance.
 homebrew_casks:
   - name: stratt
+    # Skip the cask push for prereleases (and snapshots): the single
+    # stable cask must only track non-prerelease releases, so RC tags
+    # (v1.2.3-rc.1) publish a GitHub prerelease + attestation but leave
+    # the cask untouched.  Prerelease users opt in via the tarball /
+    # `stratt self update --channel prerelease` path, not brew.
+    skip_upload: "auto"
     repository:
       owner: stratt-sh
       name: homebrew-tap

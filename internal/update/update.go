@@ -18,7 +18,7 @@ type Options struct {
 	Repo string
 
 	// Channel selects which releases are visible to the checker
-	// (R4.9 / R4.16).  ChannelStable or ChannelPrerelease.
+	// (R4.9 / R4.16).  ChannelDefault or ChannelPrerelease.
 	Channel string
 
 	// CurrentVersion is the version of the running binary (e.g. "1.2.3"
@@ -62,7 +62,7 @@ type Result struct {
 // upgrade over CurrentVersion.  Does not download or install.
 func CheckOnly(ctx context.Context, opts Options) (latest *Release, isNewer bool, err error) {
 	if opts.Channel == "" {
-		opts.Channel = ChannelStable
+		opts.Channel = ChannelDefault
 	}
 	latest, err = LatestRelease(ctx, opts.HTTPClient, opts.Repo, opts.Channel)
 	if err != nil {
@@ -95,7 +95,7 @@ func Apply(ctx context.Context, opts Options) (*Result, error) {
 		opts.Policy = DefaultPolicy
 	}
 	if opts.Channel == "" {
-		opts.Channel = ChannelStable
+		opts.Channel = ChannelDefault
 	}
 
 	kind, exePath := DetectInstall()
@@ -286,7 +286,7 @@ func RefreshNotifierState(ctx context.Context, opts Options) {
 		return
 	}
 	if opts.Channel == "" {
-		opts.Channel = ChannelStable
+		opts.Channel = ChannelDefault
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

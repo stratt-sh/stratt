@@ -44,7 +44,7 @@ type UserWorkspace struct {
 
 // UserUpdate — per-user update behavior (R6.7).
 type UserUpdate struct {
-	Channel       string // "stable" | "prerelease"
+	Channel       string // "default" | "prerelease" (empty = default; "stable" accepted as a deprecated alias)
 	CheckInterval string // free-form duration (parsed later); empty = default
 	AutoCheck     *bool  // nil = default true; false to disable polling
 }

@@ -318,9 +318,19 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 
 	// Two-stage notifier: print cached advisory synchronously (no IO race),
 	// then refresh the cache in the background for the next invocation.
+	// Honor the user's release channel so prerelease users are notified
+	// about RCs.  A bad config value just falls back to default here —
+	// `stratt self check/update` surface the error explicitly.
+	ch := update.ChannelDefault
+	if usr, _ := config.LoadUser(); usr != nil && usr.Update != nil {
+		if c, err := update.NormalizeChannel(usr.Update.Channel); err == nil {
+			ch = c
+		}
+	}
 	update.NotifyIfBehind(os.Stderr, b.Version, strattBrewFormula)
 	go update.RefreshNotifierState(cmd.Context(), update.Options{
 		Repo:           strattUpstreamRepo,
+		Channel:        ch,
 		CurrentVersion: b.Version,
 	})
 	return nil

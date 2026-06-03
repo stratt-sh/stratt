@@ -72,14 +72,14 @@ func TestReleaseNonInteractivePatchSuccess(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false, // can't push in a test repo with no remote
-		Stdin:   strings.NewReader(""),
-		Stdout:  &stdout,
-		Stderr:  &stderr,
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false, // can't push in a test repo with no remote
+		Stdin:     strings.NewReader(""),
+		Stdout:    &stdout,
+		Stderr:    &stderr,
 	})
 	if err != nil {
 		t.Fatalf("release failed: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
@@ -109,15 +109,15 @@ func TestReleasePreflightWrongBranchFails(t *testing.T) {
 	mustRun(t, dir, "git", "checkout", "-b", "feature")
 
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Branch:  "main",
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Branch:    "main",
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 	})
 	if err == nil {
 		t.Fatal("expected branch-check failure")
@@ -132,14 +132,14 @@ func TestReleasePreflightDirtyTreeFails(t *testing.T) {
 	writeFile(t, dir, "dirty.txt", "uncommitted")
 
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 	})
 	if err == nil {
 		t.Fatal("expected clean-tree check to fail")
@@ -169,8 +169,8 @@ func TestReleaseCIRequiresKind(t *testing.T) {
 
 func TestReleaseInteractivePromptPatch(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
-	// Provide "p\n" for the prompt, then "y\n" for the final confirm.
-	stdin := strings.NewReader("p\ny\n")
+	// Provide "patch\n" for the word-based prompt, then "y\n" for the final confirm.
+	stdin := strings.NewReader("patch\ny\n")
 	var stdout, stderr bytes.Buffer
 
 	err := Run(context.Background(), Options{
@@ -241,14 +241,14 @@ func TestReleaseNoBumpConfigErrors(t *testing.T) {
 	mustRun(t, dir, "git", "add", "-A")
 	mustRun(t, dir, "git", "commit", "-q", "-m", "initial")
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 	})
 	if err == nil {
 		t.Fatal("expected no-bump-config error")
@@ -288,11 +288,11 @@ replace = "version = \"{new_version}\""
 
 	var stderr bytes.Buffer
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
 		// Branch deliberately left empty → triggers auto-detect.
 		Stdin:  strings.NewReader(""),
 		Stdout: &bytes.Buffer{},
@@ -316,14 +316,14 @@ func TestReleasePrefersMainOverMaster(t *testing.T) {
 	mustRun(t, dir, "git", "branch", "master")
 	var stderr bytes.Buffer
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &stderr,
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &stderr,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -346,14 +346,14 @@ func TestReleaseNoMainOrMasterFails(t *testing.T) {
 	mustRun(t, dir, "git", "commit", "-q", "-m", "init")
 
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 	})
 	if err == nil {
 		t.Fatal("expected error for unconventional branch")
@@ -369,15 +369,15 @@ func TestReleaseExplicitBranchOverridesAutoDetect(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
 	mustRun(t, dir, "git", "checkout", "-b", "release-2024")
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Branch:  "release-2024",
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Branch:    "release-2024",
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 	})
 	if err != nil {
 		t.Fatalf("explicit branch should work: %v", err)
@@ -388,14 +388,14 @@ func TestReleasePreReleaseCheckIsInvoked(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
 	called := false
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 		PreReleaseCheck: func(_ context.Context) error {
 			called = true
 			return nil
@@ -415,14 +415,14 @@ func TestReleasePreReleaseCheckFailureAborts(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
 	wantErr := errors.New("tests failed")
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 		PreReleaseCheck: func(_ context.Context) error {
 			return wantErr
 		},
@@ -446,14 +446,14 @@ func TestReleasePreReleaseCheckFailureAborts(t *testing.T) {
 func TestReleaseDetectsDirtyTreeAfterChecks(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
 		PreReleaseCheck: func(_ context.Context) error {
 			// Simulate an autofixer that touched a tracked file.
 			return os.WriteFile(filepath.Join(dir, "pyproject.toml"),
@@ -479,8 +479,8 @@ func TestReleaseSkipChecksBypassesPreReleaseCheck(t *testing.T) {
 	called := false
 	err := Run(context.Background(), Options{
 		CWD:        dir,
-		Kind:       bump.Patch,
-		HasKind:    true,
+		Action:     bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction:  true,
 		CI:         true,
 		Push:       false,
 		SkipChecks: true,
@@ -507,14 +507,14 @@ func TestReleaseLocalOnlyPrintsPushHint(t *testing.T) {
 	var stdout bytes.Buffer
 
 	err := Run(context.Background(), Options{
-		CWD:     dir,
-		Kind:    bump.Patch,
-		HasKind: true,
-		CI:      true,
-		Push:    false,
-		Stdin:   strings.NewReader(""),
-		Stdout:  &stdout,
-		Stderr:  &bytes.Buffer{},
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &stdout,
+		Stderr:    &bytes.Buffer{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -525,5 +525,74 @@ func TestReleaseLocalOnlyPrintsPushHint(t *testing.T) {
 	}
 	if !strings.Contains(out, "git push origin main") {
 		t.Errorf("hint should mention `git push origin main`; got:\n%s", out)
+	}
+}
+
+// TestReleasePrereleaseStart — `preminor`-equivalent: start an rc.
+func TestReleasePrereleaseStart(t *testing.T) {
+	dir := setupRepo(t, "0.17.0")
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), Options{
+		CWD:       dir,
+		Push:      false,
+		CI:        true,
+		Action:    bump.Action{Kind: bump.Minor, Op: bump.OpStart, Label: "rc"},
+		HasAction: true,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	})
+	if err != nil {
+		t.Fatalf("release failed: %v\nstdout: %s", err, stdout.String())
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if !strings.Contains(string(body), `version = "0.18.0-rc.1"`) {
+		t.Errorf("expected 0.18.0-rc.1, got:\n%s", body)
+	}
+}
+
+// TestReleasePrereleasePromote — finalize an rc by dropping the suffix.
+func TestReleasePrereleasePromote(t *testing.T) {
+	dir := setupRepo(t, "0.18.0-rc.2")
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), Options{
+		CWD:       dir,
+		Push:      false,
+		CI:        true,
+		Action:    bump.Action{Op: bump.OpPromote},
+		HasAction: true,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	})
+	if err != nil {
+		t.Fatalf("release failed: %v\nstdout: %s", err, stdout.String())
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if !strings.Contains(string(body), `version = "0.18.0"`) {
+		t.Errorf("expected promoted 0.18.0, got:\n%s", body)
+	}
+}
+
+// TestReleaseStateAwareRejectsBaseBumpMidPrerelease — a plain `patch`
+// while on a prerelease is rejected with guidance.
+func TestReleaseStateAwareRejectsBaseBumpMidPrerelease(t *testing.T) {
+	dir := setupRepo(t, "0.18.0-rc.1")
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), Options{
+		CWD:       dir,
+		Push:      false,
+		CI:        true,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	})
+	if err == nil {
+		t.Fatal("expected error: base bump on a prerelease")
+	}
+	if !strings.Contains(err.Error(), "prerelease") {
+		t.Errorf("error should mention prerelease state; got: %v", err)
 	}
 }

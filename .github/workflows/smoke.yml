@@ -19,6 +19,12 @@
 #              Linux, since linuxbrew can't install casks. If brew-on-
 #              Linux is ever needed it requires a formula, which collides
 #              with the cask name — prefer the tarball/install.sh in CI.
+#
+# Prereleases (vX.Y.Z-rc.N): GoReleaser skips the cask push for them
+# (skip_upload: auto), so the macOS/cask job is skipped — there's nothing
+# new in the cask to test. The Linux tarball job still runs, since the
+# tarball IS published for prereleases and is how prerelease users (on
+# `--channel prerelease`) actually install.
 
 name: smoke
 
@@ -30,6 +36,10 @@ on:
 jobs:
   brew-cask:
     name: brew install (macOS)
+    # The cask only tracks non-prerelease releases (skip_upload: auto),
+    # so skip this job for prerelease events — the cask won't have moved.
+    # Manual dispatch still runs it against the current cask.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
     runs-on: macos-latest
     steps:
       - name: Resolve the version under test

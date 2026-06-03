@@ -7,8 +7,23 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/update"
 )
+
+// resolveChannel picks the release channel for self update/check: an
+// explicit --channel flag wins; otherwise [update].channel from the user
+// config; otherwise the default.  The deprecated "stable" alias folds to
+// "default", and an unrecognized value is rejected (NormalizeChannel).
+func resolveChannel(flagVal string) (string, error) {
+	c := flagVal
+	if c == "" {
+		if usr, err := config.LoadUser(); err == nil && usr != nil && usr.Update != nil {
+			c = usr.Update.Channel
+		}
+	}
+	return update.NormalizeChannel(c)
+}
 
 // newSelfCmd wires the `stratt self` subcommand group:
 // `stratt self update`, `rollback`, `verify`, `check`.  Per R4.
@@ -60,15 +75,19 @@ The update is gated on:
   - Attestation verification succeeding (direct-install path; R4.3)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			ch, err := resolveChannel(channel)
+			if err != nil {
+				return err
+			}
 			// Brew-managed binaries get the brew-flavored flow.
 			kind, _ := update.DetectInstall()
 			if kind == update.InstallHomebrew {
-				return runBrewSelfUpdate(cmd, b, channel, yes, ciFlag)
+				return runBrewSelfUpdate(cmd, b, ch, yes, ciFlag)
 			}
 
 			res, err := update.Apply(cmd.Context(), update.Options{
 				Repo:             strattUpstreamRepo,
-				Channel:          channel,
+				Channel:          ch,
 				CurrentVersion:   b.Version,
 				Stdout:           cmd.OutOrStdout(),
 				Stderr:           cmd.ErrOrStderr(),
@@ -87,7 +106,7 @@ The update is gated on:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&channel, "channel", "stable", "release channel: stable | prerelease")
+	cmd.Flags().StringVar(&channel, "channel", "", `release channel override: "default" or "prerelease" (default: [update].channel, else "default")`)
 	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "skip attestation verification (UNSAFE; for emergency recovery only)")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip prompts and auto-accept (currently used on Homebrew installs to run `brew upgrade` without asking)")
 	cmd.Flags().BoolVar(&ciFlag, "ci", false, "non-interactive mode: never prompt; on Homebrew, just print the upgrade command")
@@ -230,9 +249,13 @@ func newSelfCheckCmd(b BuildInfo) *cobra.Command {
 			kind, _ := update.DetectInstall()
 			fmt.Fprintf(out, "Install method: %s\n", kind)
 
+			ch, err := resolveChannel(channel)
+			if err != nil {
+				return err
+			}
 			latest, newer, err := update.CheckOnly(cmd.Context(), update.Options{
 				Repo:           strattUpstreamRepo,
-				Channel:        channel,
+				Channel:        ch,
 				CurrentVersion: b.Version,
 			})
 			if err != nil {
@@ -253,6 +276,6 @@ func newSelfCheckCmd(b BuildInfo) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&channel, "channel", "stable", "release channel: stable | prerelease")
+	cmd.Flags().StringVar(&channel, "channel", "", `release channel override: "default" or "prerelease" (default: [update].channel, else "default")`)
 	return cmd
 }

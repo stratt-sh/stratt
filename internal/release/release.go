@@ -34,12 +34,11 @@ type Options struct {
 	// CWD is the repo root.  Required.
 	CWD string
 
-	// Kind selects the bump granularity.  When zero-value (Patch with
-	// the zero check fall-through), the runner falls back to interactive
-	// prompting in non-CI mode.  Use HasKind to distinguish "explicitly
-	// patch" from "unset".
-	Kind    bump.Kind
-	HasKind bool
+	// Action is the version transition to apply (a normal bump, or a
+	// prerelease start/iterate/promote/relabel).  When HasAction is false
+	// the runner prompts interactively (non-CI) or errors (--ci).
+	Action    bump.Action
+	HasAction bool
 
 	// Branch is the release branch.  Empty triggers auto-detection
 	// (prefer `main`, fall back to `master`).  Pre-flight aborts if
@@ -154,21 +153,23 @@ func Run(ctx context.Context, opts Options) error {
 				"(see R2.4.7 for the supported locations)")
 	}
 
-	// Determine kind: explicit > prompt.
-	kind, err := resolveKind(opts, stdin)
+	// Determine the version transition: explicit > prompt.
+	action, err := resolveAction(opts, cfg, stdin)
 	if err != nil {
 		return err
 	}
 
-	// Confirmation gate for Major.
-	if kind == bump.Major {
+	// Confirmation gate for Major (a normal major bump or a major-line
+	// prerelease start; iterate/promote/relabel inherit the base already
+	// confirmed at start).
+	if (action.Op == bump.OpRelease || action.Op == bump.OpStart) && action.Kind == bump.Major {
 		if err := confirmMajor(opts, stdin); err != nil {
 			return err
 		}
 	}
 
 	// Compute and display plan.
-	plan, err := bump.Compute(cfg, kind, opts.CWD)
+	plan, err := bump.ComputeAction(cfg, action, opts.CWD)
 	if err != nil {
 		return fmt.Errorf("computing bump plan: %w", err)
 	}
@@ -284,41 +285,72 @@ func preflight(ctx context.Context, repo *git.Repo, opts Options) error {
 	return nil
 }
 
-// resolveKind picks the bump granularity.  Explicit (Options.HasKind)
-// wins; otherwise prompt the user, or fail in CI mode.
-func resolveKind(opts Options, stdin *bufio.Reader) (bump.Kind, error) {
-	if opts.HasKind {
-		return opts.Kind, nil
+// resolveAction picks the version transition.  An explicit action
+// (Options.HasAction) wins; otherwise prompt the user with the verbs
+// valid for the current version, or fail in CI mode.
+func resolveAction(opts Options, cfg *bump.Config, stdin *bufio.Reader) (bump.Action, error) {
+	if opts.HasAction {
+		if err := validateActionState(opts.Action, cfg.CurrentVersion); err != nil {
+			return bump.Action{}, err
+		}
+		return opts.Action, nil
 	}
 	if opts.CI {
-		return 0, errors.New("--ci requires --type=patch|minor|major (no interactive prompts)")
+		return bump.Action{}, errors.New(
+			"--ci requires an explicit release verb (patch|minor|major, preminor…, iterate, promote, relabel)")
 	}
-	fmt.Fprintln(opts.Stdout, "Release type: [p]atch  [m]inor  [M]ajor")
-	fmt.Fprint(opts.Stdout, "Choose: ")
-	line, err := stdin.ReadString('\n')
-	if err != nil {
-		return 0, err
+
+	cur := cfg.CurrentVersion
+	for {
+		if bump.IsPrerelease(cur) {
+			fmt.Fprintf(opts.Stdout, "%s (prerelease) — type an action:\n", cur)
+			fmt.Fprintln(opts.Stdout, "  iterate            continue the prerelease (rc.N → rc.N+1)")
+			fmt.Fprintln(opts.Stdout, "  promote            finalize: drop the suffix and ship to everyone")
+			fmt.Fprintln(opts.Stdout, "  relabel <label>    switch label (e.g. relabel beta)")
+		} else {
+			fmt.Fprintf(opts.Stdout, "%s — type a release:\n", cur)
+			fmt.Fprintln(opts.Stdout, "  patch | minor | major            a normal release")
+			fmt.Fprintln(opts.Stdout, "  prepatch | preminor | premajor   start a prerelease (rc; e.g. `preminor beta` for another label)")
+		}
+		fmt.Fprint(opts.Stdout, "> ")
+		line, err := stdin.ReadString('\n')
+		if err != nil {
+			return bump.Action{}, err
+		}
+		a, ok, perr := bump.ParseAction(strings.Fields(line), "")
+		if perr != nil {
+			fmt.Fprintf(opts.Stdout, "  %s\n", perr)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if err := validateActionState(a, cur); err != nil {
+			fmt.Fprintf(opts.Stdout, "  %s\n", err)
+			continue
+		}
+		return a, nil
 	}
-	trimmed := strings.TrimSpace(line)
-	// Single-char forms: case-sensitive to disambiguate 'm'/'M'.
-	switch trimmed {
-	case "p":
-		return bump.Patch, nil
-	case "m":
-		return bump.Minor, nil
-	case "M":
-		return bump.Major, nil
+}
+
+// validateActionState rejects verbs that don't apply to the current
+// version's state — base bumps mid-prerelease, or iterate/promote/relabel
+// on a final — with guidance toward the right verb.
+func validateActionState(a bump.Action, current string) error {
+	pre := bump.IsPrerelease(current)
+	switch a.Op {
+	case bump.OpRelease, bump.OpStart:
+		if pre {
+			return fmt.Errorf(
+				"you're on a prerelease (%s); use `promote` to finalize, `iterate` to continue, or `relabel` to switch — base bumps aren't valid mid-prerelease",
+				current)
+		}
+	case bump.OpIterate, bump.OpPromote, bump.OpRelabel:
+		if !pre {
+			return fmt.Errorf("%s is not a prerelease; start one first (e.g. `stratt release preminor`)", current)
+		}
 	}
-	// Long forms: case-insensitive.
-	switch strings.ToLower(trimmed) {
-	case "patch":
-		return bump.Patch, nil
-	case "minor":
-		return bump.Minor, nil
-	case "major":
-		return bump.Major, nil
-	}
-	return 0, fmt.Errorf("invalid choice %q", trimmed)
+	return nil
 }
 
 // confirmMajor enforces the explicit confirmation gate for Major bumps

@@ -22,6 +22,7 @@ import (
 func newReleaseCmd() *cobra.Command {
 	var (
 		typeFlag       string
+		preFlag        string
 		ciFlag         bool
 		yesFlag        bool
 		branchFlag     string
@@ -30,10 +31,22 @@ func newReleaseCmd() *cobra.Command {
 		skipChecksFlag bool
 	)
 	cmd := &cobra.Command{
-		Use:   "release [patch|minor|major]",
+		Use:   "release [verb]",
 		Short: "Bump version, commit, tag, and (optionally) push",
 		Long: `Run the release flow: verify, bump version per [bump]/[tool.bumpversion]
 config, commit, tag, and push.
+
+Verbs (the prompt offers the ones valid for your current version):
+  patch | minor | major              a normal release
+  prepatch | preminor | premajor     start a prerelease (default label "rc")
+  iterate                            continue a prerelease (rc.1 → rc.2)
+  promote                            finalize a prerelease (drop the suffix)
+  relabel <label>                    switch a prerelease's label (resets to .1)
+
+Starting a prerelease accepts three equivalent spellings:
+  stratt release preminor            # 0.17.0 → 0.18.0-rc.1
+  stratt release minor,rc            # same
+  stratt release minor --pre         # same  (--pre=beta for another label)
 
 Verification runs first — the full ` + "`stratt all`" + ` suite (sync, format, lint,
 test, docs) plus a build check that compiles the project the same way CI
@@ -53,20 +66,22 @@ Release branch resolution (highest precedence first):
   --branch flag  >  [release] branch in stratt.toml  >  auto-detect (main → master)
 
 See requirements R2.4 for the full design.`,
-		Args: cobra.MaximumNArgs(1),
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
 
-			// Reconcile positional arg vs --type flag.  They're equivalent.
-			kindStr := strings.TrimSpace(typeFlag)
-			if len(args) == 1 {
-				if kindStr != "" && args[0] != kindStr {
-					return fmt.Errorf("conflicting release types: positional %q vs --type=%q", args[0], kindStr)
-				}
-				kindStr = args[0]
+			// Collect verb tokens.  Positional args are the primary form;
+			// --type stays a back-compat alias for the base bump when no
+			// positional verb is given.
+			tokens := append([]string(nil), args...)
+			switch {
+			case len(tokens) > 0 && strings.TrimSpace(typeFlag) != "":
+				return fmt.Errorf("pass the release verb positionally OR via --type, not both")
+			case len(tokens) == 0 && strings.TrimSpace(typeFlag) != "":
+				tokens = []string{strings.TrimSpace(typeFlag)}
 			}
 
 			// Build the task Registry so the pre-release `all` check has
@@ -165,14 +180,12 @@ See requirements R2.4 for the full design.`,
 				},
 			}
 
-			if kindStr != "" {
-				k, err := bump.KindFromString(kindStr)
-				if err != nil {
-					return err
-				}
-				opts.Kind = k
-				opts.HasKind = true
+			action, hasAction, err := bump.ParseAction(tokens, preFlag)
+			if err != nil {
+				return err
 			}
+			opts.Action = action
+			opts.HasAction = hasAction
 
 			if err := release.Run(cmd.Context(), opts); err != nil {
 				// Surface bump-config errors with extra context about the
@@ -185,7 +198,9 @@ See requirements R2.4 for the full design.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&typeFlag, "type", "", "release type: patch | minor | major (alternative to positional arg)")
+	cmd.Flags().StringVar(&typeFlag, "type", "", "base bump: patch | minor | major (back-compat alias for the positional verb)")
+	cmd.Flags().StringVar(&preFlag, "pre", "", `make it a prerelease: bare --pre uses "rc"; --pre=beta sets the label`)
+	cmd.Flags().Lookup("pre").NoOptDefVal = "rc"
 	cmd.Flags().BoolVar(&ciFlag, "ci", false, "non-interactive mode: no prompts, fail loudly on missing decisions")
 	cmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "skip final confirmation (major-bump gate still requires explicit input)")
 	cmd.Flags().StringVar(&branchFlag, "branch", "", "release branch (default: auto-detect main → master, or [release] branch from config)")
