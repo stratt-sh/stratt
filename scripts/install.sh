@@ -158,26 +158,26 @@ if [ "$expected" != "$actual" ]; then
     echo "  actual:   ${actual}" >&2
     exit 1
 fi
+echo "  ✓ checksum verified"
 
-# Independent attestation verification via `gh` — this happens BEFORE
-# the binary is ever executed, so a tampered binary can't fake its own
-# verification.  Skipped when STRATT_SKIP_ATTESTATION is set, or when
-# `gh` isn't available (unless --require-attestation forces a failure).
+# Optional provenance check: confirms the archive was built by this repo's
+# CI, on top of the checksum + HTTPS checks above. GitHub stores these
+# attestations, so `gh` is the verifier. --require-attestation makes a
+# missing verifier fatal; STRATT_SKIP_ATTESTATION skips this step.
 if [ -z "$SKIP_ATTESTATION" ]; then
     if command -v gh >/dev/null 2>&1; then
-        echo "→ verifying GitHub attestation via gh"
+        echo "→ verifying provenance via gh"
         if ! gh attestation verify "${tmp}/${archive}" --repo "${REPO}" >/dev/null 2>"${tmp}/gh-attestation.err"; then
             cat "${tmp}/gh-attestation.err" >&2
-            echo "attestation verification failed" >&2
+            echo "provenance verification failed" >&2
             exit 1
         fi
-        echo "  ✓ attestation OK"
+        echo "  ✓ provenance verified"
     elif [ -n "$REQUIRE_ATTESTATION" ]; then
-        echo "--require-attestation was set but \`gh\` is not on PATH" >&2
+        echo "--require-attestation set but gh is not on PATH" >&2
         exit 1
     else
-        echo "  note: gh CLI not found — skipping attestation verification"
-        echo "        (install gh and re-run, or set --require-attestation, to enforce)"
+        echo "  provenance check skipped (install gh to enable)"
     fi
 fi
 
