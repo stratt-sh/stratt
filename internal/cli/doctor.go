@@ -63,6 +63,11 @@ type resolvedCommand struct {
 	Backend string   // rendered "→" body; "" means no engine matched
 	Marker  string   // e.g. "[tool not on PATH]"
 	Missing []string // missing tool binary names (for install hints)
+
+	// Steps is the per-subproject breakdown for a monorepo fan-out, so the
+	// renderer can put each subproject on its own line.  Empty for single-
+	// stack repos and for user-overridden verbs (which render as Backend).
+	Steps []capability.FanOutView
 }
 
 // resolveCommandList builds the resolved-command map for the repo.  reg
@@ -84,9 +89,73 @@ func resolveCommandList(resolver *capability.Resolver, reg *runner.Registry) []r
 				}
 			}
 		}
+		// Per-subproject breakdown for monorepo fan-out — only when the
+		// displayed row is the resolver's engine (a user override/augment
+		// renders its own body, not the fan-out).
+		if isResolverRow(reg, res.Command) {
+			if fo, ok := res.Engine.(capability.FanOutEngine); ok {
+				rc.Steps = fo.FanOut()
+			}
+		}
 		out = append(out, rc)
 	}
 	return out
+}
+
+// isResolverRow reports whether a command's displayed row comes from the
+// resolver's built-in engine rather than a user override/augment.  Mirrors
+// renderCommandRow's source check.
+func isResolverRow(reg *runner.Registry, command string) bool {
+	if reg == nil {
+		return true
+	}
+	t := reg.Lookup(command)
+	if t == nil {
+		return true
+	}
+	switch t.Source {
+	case runner.SourceOverridden, runner.SourceUser, runner.SourceAugmented:
+		return false
+	}
+	return true
+}
+
+// writeResolvedRow writes one resolved command to tw.  A fan-out (Steps
+// non-empty) breaks across lines: the command + first subproject on the
+// first line, each remaining subproject on its own continuation line.
+//
+// cmdCell is the styled first-column label; contCell is an empty cell
+// carrying the SAME style overhead, so a styled (ANSI) command still lines
+// up its continuation rows under tabwriter (which counts escape bytes as
+// width).
+func writeResolvedRow(tw *tabwriter.Writer, st *ui.Style, indent, cmdCell, contCell string, rc resolvedCommand) {
+	if rc.Backend == "" {
+		fmt.Fprintf(tw, "%s%s\t→ —\t%s\n", indent, cmdCell, st.Yellow("(no engine matched)"))
+		return
+	}
+	marker := rc.Marker
+	if marker != "" {
+		marker = st.Faint(marker)
+	}
+	if len(rc.Steps) == 0 {
+		fmt.Fprintf(tw, "%s%s\t→ %s\t%s\n", indent, cmdCell, rc.Backend, marker)
+		return
+	}
+	// Pad the "dir:" labels to a common width so the bodies line up.
+	w := 0
+	for _, s := range rc.Steps {
+		if len(s.Dir) > w {
+			w = len(s.Dir)
+		}
+	}
+	for i, s := range rc.Steps {
+		label := fmt.Sprintf("%-*s", w+1, s.Dir+":")
+		if i == 0 {
+			fmt.Fprintf(tw, "%s%s\t→ %s %s\t%s\n", indent, cmdCell, label, s.Body, marker)
+		} else {
+			fmt.Fprintf(tw, "%s%s\t→ %s %s\t\n", indent, contCell, label, s.Body)
+		}
+	}
 }
 
 // renderUserBody renders an overridden task's body for doctor.  Shell
@@ -215,21 +284,13 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			for _, rc := range resolveCommandList(resolver, reg) {
-				if rc.Backend == "" {
-					fmt.Fprintf(tw, "  %s\t→ —\t%s\n", st.Bold(rc.Command), st.Yellow("(no engine matched)"))
-					continue
-				}
 				for _, name := range rc.Missing {
 					if name != "" && !seen[name] {
 						seen[name] = true
 						missingTools = append(missingTools, name)
 					}
 				}
-				marker := rc.Marker
-				if marker != "" {
-					marker = st.Faint(marker)
-				}
-				fmt.Fprintf(tw, "  %s\t→ %s\t%s\n", st.Bold(rc.Command), rc.Backend, marker)
+				writeResolvedRow(tw, st, "  ", st.Bold(rc.Command), st.Bold(""), rc)
 			}
 			tw.Flush()
 

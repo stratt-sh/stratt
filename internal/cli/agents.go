@@ -110,15 +110,7 @@ func renderRepoContext(out interface{ Write([]byte) (int, error) }, st *ui.Style
 	fmt.Fprintln(out, "  "+st.Bold("resolved commands (run `stratt <command>`):"))
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, rc := range resolveCommandList(resolver, reg) {
-		if rc.Backend == "" {
-			fmt.Fprintf(tw, "    %s\t→ —\t%s\n", rc.Command, st.Yellow("(no engine matched)"))
-			continue
-		}
-		marker := rc.Marker
-		if marker != "" {
-			marker = st.Faint(marker)
-		}
-		fmt.Fprintf(tw, "    %s\t→ %s\t%s\n", rc.Command, rc.Backend, marker)
+		writeResolvedRow(tw, st, "    ", rc.Command, "", rc)
 	}
 	tw.Flush()
 

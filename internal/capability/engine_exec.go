@@ -273,6 +273,32 @@ func (e *fanOutEngine) Tools() []string {
 	return out
 }
 
+// FanOut returns the per-subproject breakdown so callers (doctor / agents
+// context) can render one subproject per line instead of the single-line
+// Name().  Name() stays single-line for inline use (run-progress, errors).
+func (e *fanOutEngine) FanOut() []FanOutView {
+	out := make([]FanOutView, len(e.subprojects))
+	for i, m := range e.subprojects {
+		out[i] = FanOutView{Dir: m.dir, Body: m.engine.Name()}
+	}
+	return out
+}
+
+// FanOutView is one subproject's entry in a fanned-out command's display
+// breakdown.  Body is the subproject engine's Name().
+type FanOutView struct {
+	Dir  string
+	Body string
+}
+
+// FanOutEngine is the exported assertion target for engines that dispatch
+// one universal command across subprojects.  Doctor uses FanOut() to lay
+// the breakdown out line-by-line.
+type FanOutEngine interface {
+	Engine
+	FanOut() []FanOutView
+}
+
 // setEngineDir configures e to run in dir, recursing into multiEngine so
 // every composed sub-engine inherits the directory.  Engines that don't
 // execute a process (delegate / composite / not-implemented) are returned
