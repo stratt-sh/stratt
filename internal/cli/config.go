@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +12,7 @@ import (
 )
 
 // newConfigCmd wires `stratt config` and its subcommands:
+//   - `stratt config init`           — write a starter stratt.toml
 //   - `stratt config migrate`        — apply all auto-fixable deprecations
 //   - `stratt config migrate-bump`   — consolidate legacy bump config (R2.4.8)
 //   - `stratt config show`           — print the loaded project config
@@ -20,11 +22,137 @@ func newConfigCmd(b BuildInfo) *cobra.Command {
 		Use:   "config",
 		Short: "Inspect and migrate stratt project configuration",
 	}
+	cmd.AddCommand(newConfigInitCmd(b))
 	cmd.AddCommand(newConfigMigrateCmd(b))
 	cmd.AddCommand(newConfigMigrateBumpCmd())
 	cmd.AddCommand(newConfigShowCmd())
 	cmd.AddCommand(newConfigRequireVersionCmd(b))
 	return cmd
+}
+
+// newConfigInitCmd wires `stratt config init`, which drops a commented
+// starter stratt.toml at the repo root.  Because stratt parses config
+// strictly (unknown keys fail at load), the template ships almost
+// entirely commented out: a fresh file always loads cleanly, and each
+// section documents its own schema inline.
+func newConfigInitCmd(b BuildInfo) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Write a starter stratt.toml in the current repo",
+		Long: `Create a commented stratt.toml at the repo root documenting the
+available configuration sections (tasks, helpers, release, deploy, bump).
+
+Refuses to overwrite an existing stratt.toml unless --force is given, and
+refuses outright if the repo already configures stratt via [tool.stratt]
+in pyproject.toml (writing stratt.toml would create a config conflict —
+R2.3.3).`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			return runConfigInit(cmd, cwd, b, force)
+		},
+	}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite an existing stratt.toml")
+	return cmd
+}
+
+func runConfigInit(cmd *cobra.Command, cwd string, b BuildInfo, force bool) error {
+	target := filepath.Join(cwd, "stratt.toml")
+	out := cmd.OutOrStdout()
+	st := styleFrom(cmd.Context())
+
+	// stratt.toml present?  Stat directly rather than via config.Load so a
+	// pre-existing *invalid* file can still be overwritten with --force.
+	switch _, err := os.Stat(target); {
+	case err == nil && !force:
+		return fmt.Errorf("%s already exists; pass --force to overwrite", target)
+	case err != nil && !os.IsNotExist(err):
+		return err
+	}
+
+	// Guard against creating a stratt.toml that would collide with an
+	// existing [tool.stratt] in pyproject.toml.  Load only reports a
+	// pyproject source when stratt.toml is absent, so this is precise.
+	if proj, err := config.Load(cwd); err == nil && proj.Source != "" &&
+		filepath.Base(proj.Source) == "pyproject.toml" {
+		return fmt.Errorf(
+			"this repo already configures stratt via [tool.stratt] in %s; "+
+				"edit that instead of creating a separate stratt.toml", proj.Source)
+	}
+
+	if err := os.WriteFile(target, []byte(defaultConfigTemplate(b)), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s Wrote starter config to %s\n", st.Green("✓"), target)
+	return nil
+}
+
+// defaultConfigTemplate renders the starter stratt.toml.  required_stratt
+// is pinned to the running binary on real builds (matching `config
+// require-version`); on dev/unknown builds it ships commented so the file
+// doesn't hard-pin to a bogus version.
+func defaultConfigTemplate(b BuildInfo) string {
+	pin := `# required_stratt = ">= 0.1.0"`
+	if b.Version != "" && b.Version != "dev" {
+		pin = fmt.Sprintf("required_stratt = %q", ">= "+b.Version)
+	}
+	return `# stratt.toml — project configuration for stratt.
+#
+# Every section below is optional; stratt works with no config at all.
+# Uncomment and edit what you need.  Unknown keys are rejected at load
+# time, so a typo'd field fails loudly rather than being silently ignored.
+# Docs: https://stratt.sh
+
+# Minimum stratt version this repo requires.  Older binaries refuse to run
+# until upgraded.  ` + "`stratt config require-version`" + ` rewrites this line.
+` + pin + `
+
+# ── Tasks ──────────────────────────────────────────────────────────────
+# Named commands shown in ` + "`stratt help`" + ` and run via ` + "`stratt <name>`" + `.
+# [tasks.test]
+# description = "Run the unit tests"
+# run = "go test ./..."             # a string, or a list of commands
+#
+# Chain other tasks (run in order) before a body:
+# [tasks.ci]
+# description = "Lint then test"
+# tasks = ["lint", "test"]
+#
+# Augment a built-in instead of replacing it:
+# [tasks.build]
+# before = ["echo building..."]     # runs before the built-in build
+# after  = ["echo done"]            # runs after
+# # enabled = false                 # disable a task entirely
+
+# ── Helpers ────────────────────────────────────────────────────────────
+# Same shape as [tasks.*] but hidden from ` + "`stratt help`" + `.
+# [helpers.gen]
+# run = ["go generate ./..."]
+
+# ── Release ────────────────────────────────────────────────────────────
+# [release]
+# branch = "main"      # default: auto-detect (main, then master)
+# remote = "origin"
+# push   = true        # push the bump commit + tag
+# commit = true        # set false for a review-then-merge flow
+
+# ── Deploy ─────────────────────────────────────────────────────────────
+# [deploy]
+# primary_image = "app"   # which image to bump when an overlay has several
+# push   = true
+# commit = true
+
+# ── Version bumping ────────────────────────────────────────────────────
+# [bump]
+# current_version  = "0.1.0"
+# files            = ["VERSION", "pyproject.toml"]
+# tag_prefix       = "v"
+# message_template = "Bump version: {current_version} -> {new_version}"
+`
 }
 
 func newConfigMigrateCmd(b BuildInfo) *cobra.Command {
