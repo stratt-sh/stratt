@@ -50,7 +50,28 @@ jobs:
           # PAT with Contents: read+write on stratt-sh/homebrew-tap.
           HOMEBREW_TAP_TOKEN_STRATTSH: ${{ secrets.HOMEBREW_TAP_TOKEN_STRATTSH }}
 
+      # Attest the release archives — the artifacts `stratt self update`
+      # and the install script verify.  GoReleaser has already published
+      # the release by this point, so a transient Sigstore failure here
+      # would leave a published-but-unattested release (the v0.19.0-rc.2
+      # incident).  Retry once, then fail the run loudly if it never lands.
       - name: Attest release binaries
+        id: attest
+        continue-on-error: true
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: "dist/stratt_*"
+          subject-path: "dist/stratt_*.tar.gz"
+
+      - name: Attest release binaries (retry)
+        if: steps.attest.outcome == 'failure'
+        id: attest_retry
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "dist/stratt_*.tar.gz"
+
+      - name: Fail if attestation never succeeded
+        if: steps.attest.outcome == 'failure' && steps.attest_retry.outcome == 'failure'
+        run: |
+          echo "::error::build-provenance attestation failed after retry; the release is published but unattested — cut a new tag to re-run" >&2
+          exit 1
