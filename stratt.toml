@@ -25,7 +25,7 @@
 # target: e.g., to ship v0.1.0, start at "0.0.0" and run
 # `stratt release minor`.  Subsequent releases auto-bump from this line.
 [bump]
-current_version = "0.17.1"
+current_version = "0.18.0"
 
 [[bump.files]]
 filename = "stratt.toml"
