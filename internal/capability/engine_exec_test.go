@@ -2,6 +2,8 @@ package capability
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,5 +94,75 @@ func TestDelegateEngine(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stratt release") {
 		t.Errorf("error should reference the delegate command: %q", err.Error())
+	}
+}
+
+// TestFanOutEngineRunsInSubprojectDirs proves the fan-out actually changes
+// working directory per subproject: each subproject writes its cwd to a file, and
+// we confirm the files land in the right directories.  This is the
+// correctness guarantee behind monorepo dispatch — without setEngineDir
+// every subproject would run in the process cwd.
+func TestFanOutEngineRunsInSubprojectDirs(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "backend")
+	b := filepath.Join(root, "frontend")
+	for _, d := range []string{a, b} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mk := func(dir string) Engine {
+		e := &execEngine{tool: "sh", argv: []string{"-c", "pwd -P > marker.txt"}}
+		setEngineDir(e, dir)
+		return e
+	}
+	ws := &fanOutEngine{
+		command: "test",
+		subprojects: []subprojectStep{
+			{dir: "backend", engine: mk(a)},
+			{dir: "frontend", engine: mk(b)},
+		},
+	}
+	if err := ws.Run(context.Background(), nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, d := range []string{a, b} {
+		got, err := os.ReadFile(filepath.Join(d, "marker.txt"))
+		if err != nil {
+			t.Fatalf("read marker in %s: %v", d, err)
+		}
+		// macOS /tmp is a symlink to /private/tmp; `pwd -P` resolves it,
+		// so resolve our expectation the same way before comparing.
+		want, _ := filepath.EvalSymlinks(d)
+		if strings.TrimSpace(string(got)) != want {
+			t.Errorf("subproject ran in %q, want %q", strings.TrimSpace(string(got)), want)
+		}
+	}
+}
+
+// TestFanOutEngineFailFast — a failing subproject stops the run and the
+// error names the command and the subproject directory.
+func TestFanOutEngineFailFast(t *testing.T) {
+	good := &fakeEngine{name: "ok"}
+	bad := &execEngine{tool: "sh", argv: []string{"-c", "exit 3"}}
+	after := &fakeEngine{name: "after"}
+	ws := &fanOutEngine{
+		command: "test",
+		subprojects: []subprojectStep{
+			{dir: "backend", engine: good},
+			{dir: "frontend", engine: bad},
+			{dir: "docs", engine: after},
+		},
+	}
+	err := ws.Run(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if !strings.Contains(err.Error(), "test in frontend") {
+		t.Errorf("error should name the command and subproject: %q", err.Error())
+	}
+	if after.calls != 0 {
+		t.Error("subprojects after the failure should not run (fail-fast)")
 	}
 }

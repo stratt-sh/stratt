@@ -375,3 +375,75 @@ run = ["echo ok"]
 		t.Errorf("homogeneous string list should parse cleanly: %v", err)
 	}
 }
+
+// TestLoadSubprojectsDeclared — [[subprojects]] parses into Project.Subprojects with
+// path and the optional `only` verb filter, in declared order.
+func TestLoadSubprojectsDeclared(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "stratt.toml", `
+[[subprojects]]
+path = "backend"
+
+[[subprojects]]
+path = "frontend"
+only = ["test", "lint"]
+`)
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Subprojects) != 2 {
+		t.Fatalf("expected 2 stacks, got %d", len(p.Subprojects))
+	}
+	if p.Subprojects[0].Path != "backend" || len(p.Subprojects[0].Only) != 0 {
+		t.Errorf("stacks[0]: got %+v", p.Subprojects[0])
+	}
+	if p.Subprojects[1].Path != "frontend" {
+		t.Errorf("stacks[1].Path: got %q", p.Subprojects[1].Path)
+	}
+	if got := p.Subprojects[1].Only; len(got) != 2 || got[0] != "test" || got[1] != "lint" {
+		t.Errorf("stacks[1].Only: got %v", got)
+	}
+}
+
+// TestLoadSubprojectsRequiresPath — a [[subprojects]] entry with no path is a load
+// error (consistent with stratt's loud-failure stance on bad config).
+func TestLoadSubprojectsRequiresPath(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "stratt.toml", `
+[[subprojects]]
+only = ["test"]
+`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected error for stacks entry without path")
+	}
+}
+
+// TestLoadSubprojectsRejectsUnknownField — strict parsing extends into the
+// [[subprojects]] table: a typo'd key fails at load time.
+func TestLoadSubprojectsRejectsUnknownField(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "stratt.toml", `
+[[subprojects]]
+path = "backend"
+onlyy = ["test"]
+`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected strict-parse error for unknown stacks field")
+	}
+}
+
+// TestLoadSubprojectsRejectsOnlyAndSkip — `only` and `skip` on the same
+// subproject are mutually exclusive and fail at load.
+func TestLoadSubprojectsRejectsOnlyAndSkip(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "stratt.toml", `
+[[subprojects]]
+path = "frontend"
+only = ["build"]
+skip = ["test"]
+`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected error when both only and skip are set")
+	}
+}

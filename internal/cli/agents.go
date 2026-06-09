@@ -8,7 +8,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/runner"
 	"github.com/stratt-sh/stratt/internal/ui"
@@ -78,19 +77,29 @@ func renderRepoContext(out interface{ Write([]byte) (int, error) }, st *ui.Style
 	fmt.Fprintln(out, st.Bold(fmt.Sprintf("THIS REPOSITORY (%s)", cwd)))
 
 	proj, cfgErr := config.Load(cwd)
-	resolver := capability.New(cwd)
+	resolver := resolverFor(cwd, proj)
 
 	stacks := resolver.Stacks()
-	if len(stacks) == 0 {
+	subprojects := resolver.Subprojects()
+	if len(stacks) == 0 && len(subprojects) == 0 {
 		fmt.Fprintln(out, "  no recognized stacks detected here — stratt runs in zero-config mode")
 		return
 	}
 
-	names := make([]string, 0, len(stacks))
-	for _, s := range stacks {
-		names = append(names, fmt.Sprintf("%s (via %s)", s.Name, s.Signal))
+	if len(stacks) > 0 {
+		names := make([]string, 0, len(stacks))
+		for _, s := range stacks {
+			names = append(names, fmt.Sprintf("%s (via %s)", s.Name, s.Signal))
+		}
+		fmt.Fprintf(out, "  detected stacks: %s\n", joinComma(names))
 	}
-	fmt.Fprintf(out, "  detected stacks: %s\n", joinComma(names))
+	for _, m := range subprojects {
+		names := make([]string, 0, len(m.Stacks))
+		for _, s := range m.Stacks {
+			names = append(names, fmt.Sprintf("%s (via %s)", s.Name, s.Signal))
+		}
+		fmt.Fprintf(out, "  subproject %s/: %s\n", m.Dir, joinComma(names))
+	}
 
 	var reg *runner.Registry
 	if cfgErr == nil {

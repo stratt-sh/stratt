@@ -171,15 +171,25 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			proj, cfgErr := config.Load(cwd)
 
 			fmt.Fprintf(out, "Scanning %s\n", cwd)
-			resolver := capability.New(cwd)
+			resolver := resolverFor(cwd, proj)
 			stacks := resolver.Stacks()
-			if len(stacks) == 0 {
+			subprojects := resolver.Subprojects()
+			if len(stacks) == 0 && len(subprojects) == 0 {
 				fmt.Fprintln(out, "  no recognized stacks found")
 				printConfigStatus(out, st, cwd, proj, cfgErr, b.Version)
 				return nil
 			}
 			for _, s := range stacks {
 				fmt.Fprintf(out, "  %s %s (via %s)\n", st.Green("✓"), s.Name, s.Signal)
+			}
+			if len(subprojects) > 0 {
+				fmt.Fprintf(out, "  %s subprojects:\n", st.Bold("›"))
+				for _, m := range subprojects {
+					for _, s := range m.Stacks {
+						fmt.Fprintf(out, "    %s %s/ → %s (via %s)\n",
+							st.Green("✓"), m.Dir, s.Name, s.Signal)
+					}
+				}
 			}
 
 			// Build the merged task registry so we can show the

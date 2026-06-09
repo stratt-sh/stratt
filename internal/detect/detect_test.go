@@ -302,3 +302,78 @@ func TestScanEmpty(t *testing.T) {
 		t.Errorf("empty repo: expected 0 stacks, got %v", got.Stacks)
 	}
 }
+
+// TestScanRepoMonorepo — the emulsia shape: no language stack at the
+// root (just a Dockerfile + kustomize), Python in backend/, Node in
+// frontend/.  Subprojects come back sorted by Dir, each with its own stacks.
+func TestScanRepoMonorepo(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "Dockerfile")
+	touch(t, dir, "deploy/overlays/prod/kustomization.yaml")
+	touch(t, dir, "backend/pyproject.toml")
+	touch(t, dir, "backend/uv.lock")
+	touch(t, dir, "frontend/package.json")
+	touch(t, dir, "frontend/package-lock.json")
+
+	ws := ScanRepo(dir)
+
+	// Root still reports its auxiliary stacks.
+	rootNames := stackNames(ws.Root.Stacks)
+	if !reflect.DeepEqual(rootNames, []string{"docker", "kustomize"}) {
+		t.Errorf("root stacks: got %v", rootNames)
+	}
+
+	if len(ws.Subprojects) != 2 {
+		t.Fatalf("expected 2 members, got %d: %+v", len(ws.Subprojects), ws.Subprojects)
+	}
+	if ws.Subprojects[0].Dir != "backend" || ws.Subprojects[1].Dir != "frontend" {
+		t.Errorf("member order/dirs: got %q, %q", ws.Subprojects[0].Dir, ws.Subprojects[1].Dir)
+	}
+	if got := stackNames(ws.Subprojects[0].Report.Stacks); !reflect.DeepEqual(got, []string{"python+uv"}) {
+		t.Errorf("backend stacks: got %v", got)
+	}
+	if got := stackNames(ws.Subprojects[1].Report.Stacks); !reflect.DeepEqual(got, []string{"node+npm"}) {
+		t.Errorf("frontend stacks: got %v", got)
+	}
+}
+
+// TestScanRepoIgnoresJunkDirs — node_modules, .venv, dot-dirs, and
+// the root-conventional deploy/ and docs/ are never reported as members,
+// even when they contain manifest-shaped files.
+func TestScanRepoIgnoresJunkDirs(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "node_modules/foo/package.json")
+	touch(t, dir, "node_modules/foo/package-lock.json")
+	touch(t, dir, ".venv/pyproject.toml")
+	touch(t, dir, ".venv/uv.lock")
+	touch(t, dir, "deploy/go.mod")
+	touch(t, dir, "docs/package.json")
+	touch(t, dir, "docs/package-lock.json")
+
+	ws := ScanRepo(dir)
+	if len(ws.Subprojects) != 0 {
+		t.Errorf("expected no members from junk dirs, got %+v", ws.Subprojects)
+	}
+}
+
+// TestScanRepoSingleStackRootHasNoMembers — a conventional repo with
+// a manifest at the root produces no members (ScanRepo still scans,
+// but the policy gate lives in capability; here we just confirm an
+// incidental subdir without a stack isn't picked up).
+func TestScanRepoNoStackSubdirsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	touch(t, dir, "internal/foo.go") // a plain source subdir, no manifest
+	ws := ScanRepo(dir)
+	if len(ws.Subprojects) != 0 {
+		t.Errorf("source-only subdir should not be a member, got %+v", ws.Subprojects)
+	}
+}
+
+func stackNames(stacks []Stack) []string {
+	out := make([]string, len(stacks))
+	for i, s := range stacks {
+		out[i] = s.Name
+	}
+	return out
+}

@@ -133,6 +133,22 @@ func defaultConfigTemplate(b BuildInfo) string {
 # [helpers.gen]
 # run = ["go generate ./..."]
 
+# ── Subprojects (monorepos) ────────────────────────────────────────────
+# For a repo whose code lives in subdirectories (e.g. a Python backend/ and
+# a Node frontend/), the per-stack verbs (build, test, lint, format, setup,
+# sync, lock, upgrade) fan out across them, each running in its own dir.
+# When the repo root has no language stack of its own, subprojects are
+# auto-detected — no config needed.  Declare them explicitly to fan out
+# even when the root has a stack, to pin the order, or to limit which verbs
+# run where.  Use path = "." to include the repo root as a subproject.
+# [[subprojects]]
+# path = "backend"
+# skip = ["build"]          # optional: verbs that should NOT fan out here
+# [[subprojects]]
+# path = "frontend"
+# only = ["build", "lint"]  # optional: the only verbs that fan out here
+#                           # (set only OR skip, not both)
+
 # ── Release ────────────────────────────────────────────────────────────
 # [release]
 # branch = "main"      # default: auto-detect (main, then master)

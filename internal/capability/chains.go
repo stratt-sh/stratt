@@ -115,8 +115,14 @@ func (r *Resolver) resolveLint() Engine {
 // ResolveLintCheck is the check-only sibling to lint resolution — same
 // chain, same tool family, but with the auto-fix flag stripped.  Used
 // by `stratt lint --check` for CI where you want a non-mutating gate.
+//
+// Like Resolve, it fans out across subprojects — each member
+// resolves its own check-only engine so a monorepo's `stratt lint
+// --check` stays non-mutating in every subdirectory.
 func (r *Resolver) ResolveLintCheck() Engine {
-	return r.lintEngine(false)
+	return r.fanOut("lint", r.lintEngine(false), func(m *Resolver) Engine {
+		return m.ResolveLintCheck()
+	})
 }
 
 // lintEngine factors the chain so both modes share the same matching
@@ -452,8 +458,14 @@ func (r *Resolver) resolveDocs() Engine {
 // resolveStyle — composite of format + lint.  Only resolves when both
 // constituents have engines (i.e., the project has formatters and
 // linters available).
+//
+// Membership is tested through Resolve (not the raw resolveFormat/
+// resolveLint chains) so that in a monorepo, where format and lint resolve
+// by fanning out across subprojects rather than at the root, `style` still
+// composes them.  For single-stack repos Resolve and the raw chains agree,
+// so behavior is unchanged.
 func (r *Resolver) resolveStyle() Engine {
-	if r.resolveFormat() == nil || r.resolveLint() == nil {
+	if r.Resolve("format").Engine == nil || r.Resolve("lint").Engine == nil {
 		return nil
 	}
 	return &compositeEngine{
@@ -492,11 +504,14 @@ func (r *Resolver) resolveAll() Engine {
 		displayParts = append(displayParts, label)
 	}
 
-	if r.resolveSync() != nil {
+	// Membership is tested through Resolve so the composite picks up
+	// fanned-out subproject verbs in a monorepo as well as root verbs in a
+	// single-stack repo (where the two paths agree).
+	if r.Resolve("sync").Engine != nil {
 		add("sync")
 	}
-	format := r.resolveFormat()
-	lint := r.resolveLint()
+	format := r.Resolve("format").Engine
+	lint := r.Resolve("lint").Engine
 	switch {
 	case format != nil && lint != nil && lintSubsumes(lint, format):
 		addDisplayOnly("format(via lint)")
@@ -506,10 +521,10 @@ func (r *Resolver) resolveAll() Engine {
 	if lint != nil {
 		add("lint")
 	}
-	if r.resolveTest() != nil {
+	if r.Resolve("test").Engine != nil {
 		add("test")
 	}
-	if r.resolveDocs() != nil {
+	if r.Resolve("docs").Engine != nil {
 		add("docs")
 	}
 	if len(members) == 0 {

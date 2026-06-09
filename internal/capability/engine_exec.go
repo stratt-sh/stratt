@@ -57,6 +57,7 @@ func (e *execEngine) Run(ctx context.Context, _ []string) error {
 type shellEngine struct {
 	line    string
 	display string
+	dir     string // directory to run in; defaults to the process cwd
 }
 
 func (e *shellEngine) Name() string {
@@ -73,6 +74,9 @@ func (e *shellEngine) Run(ctx context.Context, _ []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if e.dir != "" {
+		cmd.Dir = e.dir
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", e.Name(), err)
 	}
@@ -194,4 +198,95 @@ func (e *multiEngine) Tools() []string {
 		}
 	}
 	return out
+}
+
+// subprojectStep pairs a subproject relative directory with the
+// engine resolved for it.  Dir is a display label ("backend", or "." for
+// the repo root); the engine itself already carries the absolute working
+// directory it runs in (set via setEngineDir).
+type subprojectStep struct {
+	dir    string
+	engine Engine
+}
+
+// fanOutEngine fans a single universal command out across the stacks
+// detected in a monorepo's subproject subdirectories — e.g. `stratt test`
+// running pytest in backend/ and `npm test` in frontend/.  Subprojects run in
+// declared order and execution stops on the first failure, matching
+// stratt's serial, fail-fast model (R2.6.5).
+//
+// It is only constructed when a monorepo actually has subprojects; a
+// single-stack repo resolves to its bare engine exactly as before, so
+// existing behavior is unchanged.
+type fanOutEngine struct {
+	command     string
+	subprojects []subprojectStep
+}
+
+func (e *fanOutEngine) Name() string {
+	parts := make([]string, len(e.subprojects))
+	for i, m := range e.subprojects {
+		parts[i] = fmt.Sprintf("%s: %s", m.dir, m.engine.Name())
+	}
+	return strings.Join(parts, "; ")
+}
+
+// Status aggregates the subprojects: any non-ready subproject makes the whole
+// fan-out non-ready, surfacing MissingTool ahead of Pending so doctor's
+// install hints take precedence.
+func (e *fanOutEngine) Status() EngineStatus {
+	worst := StatusReady
+	for _, m := range e.subprojects {
+		switch m.engine.Status() {
+		case StatusMissingTool:
+			return StatusMissingTool
+		case StatusPending:
+			worst = StatusPending
+		}
+	}
+	return worst
+}
+
+func (e *fanOutEngine) Run(ctx context.Context, args []string) error {
+	for _, m := range e.subprojects {
+		if err := m.engine.Run(ctx, args); err != nil {
+			return fmt.Errorf("%s in %s: %w", e.command, m.dir, err)
+		}
+	}
+	return nil
+}
+
+// Tools aggregates every subproject's missing-tool surface so doctor lists
+// each dependency once.  Implements MultiTooler.
+func (e *fanOutEngine) Tools() []string {
+	var out []string
+	for _, m := range e.subprojects {
+		switch t := m.engine.(type) {
+		case MultiTooler:
+			out = append(out, t.Tools()...)
+		case Tooler:
+			if name := t.Tool(); name != "" {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// setEngineDir configures e to run in dir, recursing into multiEngine so
+// every composed sub-engine inherits the directory.  Engines that don't
+// execute a process (delegate / composite / not-implemented) are returned
+// unchanged.  The engines passed here are freshly constructed by the
+// resolver chains and never shared, so mutating them in place is safe.
+func setEngineDir(e Engine, dir string) {
+	switch t := e.(type) {
+	case *execEngine:
+		t.cwd = dir
+	case *shellEngine:
+		t.dir = dir
+	case *multiEngine:
+		for _, sub := range t.engines {
+			setEngineDir(sub, dir)
+		}
+	}
 }

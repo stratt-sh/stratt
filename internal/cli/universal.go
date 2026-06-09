@@ -160,12 +160,34 @@ func loadRegistry(cwd string) (*runner.Registry, *capability.Resolver, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	resolver := capability.New(cwd)
+	resolver := resolverFor(cwd, proj)
 	reg, err := runner.BuildRegistry(resolver, proj)
 	if err != nil {
 		return nil, nil, err
 	}
 	return reg, resolver, nil
+}
+
+// resolverFor builds a workspace-aware capability resolver for cwd,
+// honoring any explicitly-declared [[subprojects]] in the project config.
+// proj may be nil (zero-config or a config error) — auto-detection of
+// subdirectory members still applies in that case.
+func resolverFor(cwd string, proj *config.Project) *capability.Resolver {
+	return capability.NewWithSubprojects(cwd, subprojectSpecs(proj))
+}
+
+// subprojectSpecs translates declared [[subprojects]] into capability.SubprojectSpec.
+// Returns nil when the project declares none, which leaves the resolver
+// in auto-detect mode.
+func subprojectSpecs(proj *config.Project) []capability.SubprojectSpec {
+	if proj == nil || len(proj.Subprojects) == 0 {
+		return nil
+	}
+	out := make([]capability.SubprojectSpec, 0, len(proj.Subprojects))
+	for _, s := range proj.Subprojects {
+		out = append(out, capability.SubprojectSpec{Dir: s.Path, Only: s.Only, Skip: s.Skip})
+	}
+	return out
 }
 
 // noEngineError builds a friendly error for the "this repo has no

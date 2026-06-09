@@ -53,6 +53,31 @@ type Project struct {
 	// Deploy captures the optional [deploy] section.  Nil when absent;
 	// deploy flow falls back to its own defaults.
 	Deploy *Deploy
+
+	// Subprojects are explicitly-declared subprojects ([[subprojects]]).
+	// Each names a subdirectory whose stack the per-project verbs (build,
+	// test, lint, ...) fan out into.  Empty means "auto-detect" — stratt
+	// scans immediate subdirectories when the repo root has no language
+	// stack of its own.  Declaring subprojects opts in even when the root
+	// has a stack, and pins the subproject set and order.
+	Subprojects []Subproject
+}
+
+// Subproject is one declared subproject ([[subprojects]]).
+type Subproject struct {
+	// Path is the subproject directory relative to the repo root (e.g.
+	// "backend").  "." includes the repo root itself as a subproject.
+	Path string
+
+	// Only, when non-empty, restricts which universal verbs fan out to
+	// this subproject (e.g. ["test", "lint"]).  Empty means all per-stack
+	// verbs fan out here.  Mutually exclusive with Skip.
+	Only []string
+
+	// Skip lists universal verbs that should NOT fan out to this
+	// subproject (e.g. ["test", "format"] for a frontend with no test or
+	// format phase).  Mutually exclusive with Only.
+	Skip []string
 }
 
 // Release is the schema for [release] / [tool.stratt.release] (R2.3.6).
@@ -137,6 +162,13 @@ type rawProject struct {
 	Bump           *rawBump           `toml:"bump"`
 	Release        *rawRelease        `toml:"release"`
 	Deploy         *rawDeploy         `toml:"deploy"`
+	Subprojects    []rawSubproject    `toml:"subprojects"`
+}
+
+type rawSubproject struct {
+	Path string   `toml:"path"`
+	Only []string `toml:"only"`
+	Skip []string `toml:"skip"`
 }
 
 type rawRelease struct {
@@ -354,6 +386,21 @@ func normalize(raw *rawProject) (*Project, error) {
 			Push:         raw.Deploy.Push,
 			Commit:       raw.Deploy.Commit,
 		}
+	}
+
+	for i, rs := range raw.Subprojects {
+		if rs.Path == "" {
+			return nil, fmt.Errorf("subprojects[%d]: `path` is required", i)
+		}
+		if len(rs.Only) > 0 && len(rs.Skip) > 0 {
+			return nil, fmt.Errorf(
+				"subprojects[%d] (%q): set `only` or `skip`, not both", i, rs.Path)
+		}
+		p.Subprojects = append(p.Subprojects, Subproject{
+			Path: rs.Path,
+			Only: append([]string(nil), rs.Only...),
+			Skip: append([]string(nil), rs.Skip...),
+		})
 	}
 
 	if raw.Bump != nil {

@@ -26,6 +26,78 @@ type Report struct {
 	Stacks []Stack
 }
 
+// SubprojectReport pairs a stack-bearing subdirectory with its detection
+// report.  Dir is the path relative to the repo root (e.g. "backend").
+type SubprojectReport struct {
+	Dir    string
+	Report Report
+}
+
+// RepoScan is a workspace-aware scan: the root report plus any immediate
+// subdirectories that carry their own stacks.  A monorepo whose code lives
+// in subdirectories (e.g. backend/ + frontend/, with nothing at the root)
+// produces an empty Root.Stacks and a populated Subprojects.
+type RepoScan struct {
+	Root        Report
+	Subprojects []SubprojectReport
+}
+
+// ignoredSubprojectDirs are subdirectory names never scanned for subproject
+// stacks.  Two groups: dependency/build/cache trees and VCS metadata
+// (scanning them is noise at best, a false positive at worst — a vendored
+// package.json is not a stack); and the root-conventional directories
+// (deploy/, docs/) that the root-level detectors already probe into, so
+// treating them as members would double-count.
+var ignoredSubprojectDirs = map[string]bool{
+	"node_modules": true,
+	".venv":        true,
+	".git":         true,
+	"vendor":       true,
+	"dist":         true,
+	"build":        true,
+	"target":       true,
+	"site":         true,
+	".stratt":      true,
+	"__pycache__":  true,
+	"deploy":       true,
+	"docs":         true,
+}
+
+// ScanRepo scans root and each of its immediate subdirectories
+// (depth 1).  Root is the conventional single-directory scan; Subprojects
+// holds every subdirectory that itself carries at least one stack,
+// excluding dependency/build/VCS trees, dot-directories, and the
+// root-conventional deploy/ and docs/ dirs.  Subprojects are sorted by Dir.
+//
+// Depth is intentionally one level: it covers the overwhelming majority
+// of monorepo layouts (services as top-level dirs) without the cost and
+// false-positive surface of a deep walk.
+func ScanRepo(root string) RepoScan {
+	ws := RepoScan{Root: Scan(root)}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return ws
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || ignoredSubprojectDirs[name] {
+			continue
+		}
+		rep := Scan(filepath.Join(root, name))
+		if len(rep.Stacks) == 0 {
+			continue
+		}
+		ws.Subprojects = append(ws.Subprojects, SubprojectReport{Dir: name, Report: rep})
+	}
+	sort.Slice(ws.Subprojects, func(i, j int) bool {
+		return ws.Subprojects[i].Dir < ws.Subprojects[j].Dir
+	})
+	return ws
+}
+
 // detector is the predicate-shape used internally.  Each returns a non-empty
 // Stack when its signal is present in root, or the zero value otherwise.
 type detector func(root string) Stack

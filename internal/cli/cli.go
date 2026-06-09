@@ -193,6 +193,7 @@ command map for this repo, or ` + "`stratt doctor`" + ` for a full health report
 	for _, spec := range universalSpecs {
 		root.AddCommand(newUniversalCmd(spec))
 	}
+	root.AddCommand(newInitCmd(b))
 	root.AddCommand(newLintCmd())
 	root.AddCommand(newRunCmd())
 	root.AddCommand(newReleaseCmd())
