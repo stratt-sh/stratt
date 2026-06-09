@@ -101,11 +101,11 @@ func VerifyArtifact(ctx context.Context, artifactPath string, bundleJSON []byte,
 	}
 	digest := h.Sum(nil)
 
-	// Parse the bundle.
-	b, err := bundle.NewBundle(nil)
-	if err != nil {
-		return fmt.Errorf("init bundle: %w", err)
-	}
+	// Parse the bundle.  UnmarshalJSON allocates the inner protobuf
+	// bundle and validates it, so we start from an empty Bundle rather
+	// than NewBundle(nil) (which would dereference a nil bundle in its
+	// own validate() and panic).
+	b := &bundle.Bundle{}
 	if err := b.UnmarshalJSON(bundleJSON); err != nil {
 		return fmt.Errorf("parse bundle: %w", err)
 	}
