@@ -219,6 +219,40 @@ func TestLatestReleasePrereleaseEnumerates(t *testing.T) {
 	}
 }
 
+// TestLatestReleaseRateLimitFriendlyError — a 403 rate-limit response is
+// rendered as actionable guidance, not the raw JSON dump.
+func TestLatestReleaseRateLimitFriendlyError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"API rate limit exceeded for 1.2.3.4.","documentation_url":"https://docs.github.com/rest"}`))
+	}))
+	defer srv.Close()
+
+	c := &http.Client{Transport: roundTrip(func(req *http.Request) (*http.Response, error) {
+		if strings.HasPrefix(req.URL.String(), "https://api.github.com") {
+			req2, _ := http.NewRequest(req.Method, srv.URL+req.URL.Path, req.Body)
+			return http.DefaultTransport.RoundTrip(req2)
+		}
+		return http.DefaultTransport.RoundTrip(req)
+	})}
+	_, err := LatestRelease(context.Background(), c, "x/y", ChannelPrerelease)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "rate limit") {
+		t.Errorf("error should mention the rate limit; got %q", msg)
+	}
+	if !strings.Contains(msg, "try again") {
+		t.Errorf("error should tell the user to try again; got %q", msg)
+	}
+	if strings.Contains(msg, "documentation_url") {
+		t.Errorf("raw JSON body leaked into error: %q", msg)
+	}
+}
+
 func TestLatestRelease404(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.NotFound(w, nil)

@@ -7,11 +7,74 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/mod/semver"
 )
+
+// newGitHubRequest builds a GET request with the standard GitHub API
+// headers.  Requests go out unauthenticated (subject to GitHub's
+// 60-request-per-hour-per-IP limit); a real user's update check makes
+// only a couple of calls, so that ceiling is effectively never reached
+// outside shared/NAT'd networks.
+func newGitHubRequest(ctx context.Context, url string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	return req, nil
+}
+
+// apiError converts a non-success GitHub API response into an error,
+// turning the common rate-limit case into an actionable message instead
+// of dumping the raw JSON body.
+func apiError(action string, resp *http.Response) error {
+	if isRateLimited(resp) {
+		// The limit is per-IP and resets on its own, so for a human the
+		// only useful action is to wait.
+		when := rateLimitReset(resp)
+		if when == "" {
+			when = "in a little while"
+		}
+		return fmt.Errorf("%s: GitHub's API rate limit is exhausted; try again %s", action, when)
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return fmt.Errorf("%s: GitHub API returned status %d: %s", action, resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+// isRateLimited reports whether resp is a GitHub rate-limit rejection —
+// either the primary limit (403 with X-RateLimit-Remaining: 0) or a
+// secondary/abuse limit (429, or a 403 carrying Retry-After).
+func isRateLimited(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return false
+	}
+	return resp.StatusCode == http.StatusTooManyRequests ||
+		resp.Header.Get("X-RateLimit-Remaining") == "0" ||
+		resp.Header.Get("Retry-After") != ""
+}
+
+// rateLimitReset returns a short human phrase for when the limit resets
+// ("in ~42m"), from Retry-After or X-RateLimit-Reset, or "" if unknown.
+func rateLimitReset(resp *http.Response) string {
+	if ra := strings.TrimSpace(resp.Header.Get("Retry-After")); ra != "" {
+		if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+			return "in ~" + (time.Duration(secs) * time.Second).Round(time.Second).String()
+		}
+	}
+	if rl := strings.TrimSpace(resp.Header.Get("X-RateLimit-Reset")); rl != "" {
+		if epoch, err := strconv.ParseInt(rl, 10, 64); err == nil {
+			if d := time.Until(time.Unix(epoch, 0)); d > 0 {
+				return "in ~" + d.Round(time.Minute).String()
+			}
+		}
+	}
+	return ""
+}
 
 // Release is the minimal GitHub Releases API representation stratt needs.
 type Release struct {
@@ -118,17 +181,17 @@ func fetchLatestDefault(ctx context.Context, client *http.Client, repo string) (
 
 func fetchLatestIncludingPrerelease(ctx context.Context, client *http.Client, repo string) (*Release, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=20", repo)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req, err := newGitHubRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GET %s: status %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, apiError("checking for releases", resp)
 	}
 	var list []*Release
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
@@ -144,9 +207,10 @@ func fetchLatestIncludingPrerelease(ctx context.Context, client *http.Client, re
 }
 
 func fetchRelease(ctx context.Context, client *http.Client, url string) (*Release, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req, err := newGitHubRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -156,8 +220,7 @@ func fetchRelease(ctx context.Context, client *http.Client, url string) (*Releas
 		return nil, ErrNoRelease
 	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GET %s: status %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, apiError("checking for the latest release", resp)
 	}
 	var rel Release
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {

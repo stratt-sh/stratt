@@ -49,9 +49,10 @@ func FetchAttestationBundle(ctx context.Context, client *http.Client, repo, hexD
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/attestations/sha256:%s", repo, hexDigest)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req, err := newGitHubRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -61,8 +62,7 @@ func FetchAttestationBundle(ctx context.Context, client *http.Client, repo, hexD
 		return nil, ErrAttestationMissing
 	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("fetch attestation: status %d: %s", resp.StatusCode, string(body))
+		return nil, apiError("fetching attestation", resp)
 	}
 
 	// The response is wrapped: { "attestations": [ { "bundle": {...} } ] }
