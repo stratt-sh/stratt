@@ -124,6 +124,45 @@ func TestSetImageUnknownImageErrors(t *testing.T) {
 	}
 }
 
+// TestSetImageUnknownImageSuggestsSingle — when the overlay has exactly
+// one image and a non-matching --image/primary_image is given, the error
+// names the actual image so the misconfiguration is self-diagnosing.
+func TestSetImageUnknownImageSuggestsSingle(t *testing.T) {
+	dir := t.TempDir()
+	path := writeOverlay(t, dir, "prod", `images:
+  - name: ghcr.io/zebpalmer/emulsia
+    newTag: 1.0.0
+`)
+	_, err := SetImage(path, "emulsia", "1.1.0")
+	if err == nil {
+		t.Fatal("expected error for unknown image")
+	}
+	if !strings.Contains(err.Error(), `did you mean "ghcr.io/zebpalmer/emulsia"?`) {
+		t.Errorf("error should suggest the actual image; got %v", err)
+	}
+}
+
+// TestSetImageUnknownImageAmongManySuggestsSubstring — with several images,
+// a substring of one is suggested; otherwise the available set is listed.
+func TestSetImageUnknownImageAmongManySuggestsSubstring(t *testing.T) {
+	dir := t.TempDir()
+	path := writeOverlay(t, dir, "prod", `images:
+  - name: ghcr.io/org/api
+    newTag: 1.0.0
+  - name: ghcr.io/org/web
+    newTag: 1.0.0
+`)
+	_, err := SetImage(path, "api", "1.1.0")
+	if err == nil || !strings.Contains(err.Error(), `did you mean "ghcr.io/org/api"?`) {
+		t.Errorf("substring should suggest ghcr.io/org/api; got %v", err)
+	}
+
+	_, err = SetImage(path, "zzz", "1.1.0")
+	if err == nil || !strings.Contains(err.Error(), "available: ghcr.io/org/api, ghcr.io/org/web") {
+		t.Errorf("no match should list available images; got %v", err)
+	}
+}
+
 func TestSetImageNoImagesSectionErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := writeOverlay(t, dir, "prod", `apiVersion: kustomize.config.k8s.io/v1beta1

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	yaml "gopkg.in/yaml.v3"
 )
@@ -59,6 +60,14 @@ func SetImage(overlayPath, imageName, version string) (*ImageChange, error) {
 		return nil, errors.New("no `images` entries in this overlay")
 	}
 
+	// Collect the image names present, for selection and for helpful errors.
+	available := make([]string, 0, len(imagesSeq.Content))
+	for _, entry := range imagesSeq.Content {
+		if n := findKey(entry, "name"); n != nil && n.Value != "" {
+			available = append(available, n.Value)
+		}
+	}
+
 	var (
 		target  *yaml.Node
 		matched string
@@ -80,9 +89,16 @@ func SetImage(overlayPath, imageName, version string) (*ImageChange, error) {
 	}
 	if target == nil {
 		if imageName == "" {
-			return nil, errors.New("multiple images in overlay; pass --image=<name> to choose")
+			return nil, fmt.Errorf("multiple images in overlay; pass --image=<name> to choose (available: %s)",
+				strings.Join(available, ", "))
 		}
-		return nil, fmt.Errorf("image %q not found in overlay", imageName)
+		msg := fmt.Sprintf("image %q not found in overlay", imageName)
+		if s := suggestImage(imageName, available); s != "" {
+			msg += fmt.Sprintf("; did you mean %q?", s)
+		} else if len(available) > 0 {
+			msg += fmt.Sprintf(" (available: %s)", strings.Join(available, ", "))
+		}
+		return nil, errors.New(msg)
 	}
 
 	tagNode := findOrCreateKey(target, "newTag")
@@ -108,6 +124,43 @@ func SetImage(overlayPath, imageName, version string) (*ImageChange, error) {
 		return nil, err
 	}
 	return change, nil
+}
+
+// suggestImage picks the most likely intended image name from available
+// when want didn't match exactly, so a typo'd --image / primary_image is
+// self-diagnosing.  Returns "" when nothing is a plausible match.
+//
+// Heuristics, in order: a single image is almost certainly the one meant;
+// otherwise a substring match in either direction (e.g. "emulsia" for
+// "ghcr.io/zebpalmer/emulsia"); otherwise a shared final path segment
+// (the image basename).
+func suggestImage(want string, available []string) string {
+	if len(available) == 1 {
+		return available[0]
+	}
+	for _, a := range available {
+		if strings.Contains(a, want) || strings.Contains(want, a) {
+			return a
+		}
+	}
+	for _, a := range available {
+		if imageBase(a) == imageBase(want) {
+			return a
+		}
+	}
+	return ""
+}
+
+// imageBase returns the final path segment of an image reference, dropping
+// any registry/namespace prefix and tag — "ghcr.io/org/app:1.2" → "app".
+func imageBase(ref string) string {
+	if i := strings.LastIndexByte(ref, '/'); i >= 0 {
+		ref = ref[i+1:]
+	}
+	if i := strings.IndexByte(ref, ':'); i >= 0 {
+		ref = ref[:i]
+	}
+	return ref
 }
 
 // findKey returns the value node for key in a mapping node, or nil if
