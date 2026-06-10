@@ -10,6 +10,7 @@ package main
 
 import (
 	"os"
+	"runtime/debug"
 
 	"github.com/stratt-sh/stratt/internal/cli"
 )
@@ -23,8 +24,25 @@ var (
 
 func main() {
 	os.Exit(cli.Run(cli.BuildInfo{
-		Version: version,
+		Version: resolveVersion(),
 		Commit:  commit,
 		Date:    date,
 	}))
+}
+
+// resolveVersion returns the GoReleaser-stamped version, or — for builds
+// produced by `go install ...@vX.Y.Z` (which don't run ldflags) — the
+// module version recorded in the build info.  Without this, such installs
+// report "dev", which silently disables the update notifier and confuses
+// required_stratt checks.
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if v := bi.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return version
 }

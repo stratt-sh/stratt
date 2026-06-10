@@ -34,6 +34,11 @@ type Options struct {
 	// HTTPClient — optional; defaults to a 60-second-timeout client.
 	HTTPClient *http.Client
 
+	// Interval is the minimum time between background notifier checks
+	// (R4.12).  Zero means the default of 24h.  Sourced from the user's
+	// `[update] check_interval`.
+	Interval time.Duration
+
 	// SkipVerification — set true to bypass attestation verification
 	// (only honored for explicit `stratt self update` invocations where
 	// the user passed --no-verify).  R4.3 forbids skipping by default.
@@ -103,7 +108,7 @@ func Apply(ctx context.Context, opts Options) (*Result, error) {
 		return nil, ErrHomebrewManaged
 	}
 	if IsCI() {
-		return nil, errors.New("self-update disabled in CI environments (R4.10)")
+		return nil, errors.New("self-update is disabled in CI environments")
 	}
 
 	rel, err := LatestRelease(ctx, opts.HTTPClient, opts.Repo, opts.Channel)
@@ -124,8 +129,14 @@ func Apply(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("no asset for %s in release %s", PlatformAssetSuffix(), rel.TagName)
 	}
 
-	// Working directory for download + verify + extract.
-	workDir := filepath.Join(os.TempDir(), "stratt-update-"+fmt.Sprint(time.Now().UnixNano()))
+	// Working directory for download + verify + extract.  MkdirTemp gives
+	// an unguessable name with 0700 perms, so a local attacker can't
+	// pre-create or write into it and swap the archive between the
+	// attestation check and extraction (a TOCTOU on the verified bytes).
+	workDir, err := os.MkdirTemp("", "stratt-update-")
+	if err != nil {
+		return nil, err
+	}
 	defer os.RemoveAll(workDir)
 
 	fmt.Fprintf(opts.Stderr, "→ downloading %s\n", asset.Name)
@@ -176,8 +187,13 @@ func Apply(ctx context.Context, opts Options) (*Result, error) {
 	}
 	res.BackupPath = backupPath
 
-	// Persist state.
-	state, _ := LoadState()
+	// Persist state.  The binary is already swapped at this point, so a
+	// state-load failure must not panic — fall back to a fresh State so
+	// PreviousVersion is still recorded for `stratt self rollback`.
+	state, err := LoadState()
+	if err != nil || state == nil {
+		state = &State{}
+	}
 	state.PreviousVersion = opts.CurrentVersion
 	state.LastCheck = time.Now()
 	state.LatestSeenVersion = res.NewVersion
@@ -282,7 +298,11 @@ func RefreshNotifierState(ctx context.Context, opts Options) {
 	if err != nil {
 		return
 	}
-	if !state.LastCheck.IsZero() && time.Since(state.LastCheck) < 24*time.Hour {
+	interval := opts.Interval
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	if !state.LastCheck.IsZero() && time.Since(state.LastCheck) < interval {
 		return
 	}
 	if opts.Channel == "" {

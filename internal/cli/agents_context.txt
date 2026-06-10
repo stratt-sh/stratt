@@ -32,7 +32,8 @@ DRIVING IT NON-INTERACTIVELY (for agents)
   -y / --yes   skip confirmations
   -q           quiet output
   --no-push    (release) commit and tag locally without pushing
-  Exit codes:  0 ok · 1 user error · 2 system error
+  --no-commit  (release) write the bump only; no commit/tag/push
+  Exit codes:  0 ok · 130 interrupted · non-zero on any other error
 
 SEE WHAT RUNS HERE
   `stratt doctor` shows the resolved backend for each verb in this repo,

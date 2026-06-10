@@ -29,19 +29,27 @@ func TestDocsCommandSelectsMkDocs(t *testing.T) {
 func TestDocsCommandSelectsSphinx(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "docs/conf.py")
-	tool, _, err := docsCommand(dir, "build")
+	tool, argv, err := docsCommand(dir, "build")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tool != "sphinx-build" {
 		t.Errorf("build: got %s", tool)
 	}
-	tool, _, err = docsCommand(dir, "serve")
+	// Output must land in docs/_build/html so `stratt clean` (which
+	// targets docs/_build) and the `all` suite agree on one location.
+	if got := strings.Join(argv, " "); !strings.Contains(got, "docs/_build/html") {
+		t.Errorf("build args should target docs/_build/html; got %q", got)
+	}
+	tool, argv, err = docsCommand(dir, "serve")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tool != "sphinx-autobuild" {
 		t.Errorf("serve: got %s", tool)
+	}
+	if got := strings.Join(argv, " "); !strings.Contains(got, "docs/_build/html") {
+		t.Errorf("serve args should target docs/_build/html; got %q", got)
 	}
 }
 

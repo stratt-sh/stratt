@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,6 +46,9 @@ func (e *execEngine) Run(ctx context.Context, _ []string) error {
 		cmd.Dir = e.cwd
 	}
 	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("%q is not installed or not on PATH — run `stratt doctor` for the install command", e.tool)
+		}
 		return fmt.Errorf("%s: %w", e.Name(), err)
 	}
 	return nil

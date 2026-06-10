@@ -45,8 +45,7 @@ available configuration sections (tasks, helpers, release, deploy, bump).
 
 Refuses to overwrite an existing stratt.toml unless --force is given, and
 refuses outright if the repo already configures stratt via [tool.stratt]
-in pyproject.toml (writing stratt.toml would create a config conflict —
-R2.3.3).`,
+in pyproject.toml (writing stratt.toml would create a config conflict).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
@@ -186,9 +185,7 @@ are listed but not modified.
 After a successful migration, stratt offers to bump
 ` + "`required_stratt`" + ` to the current binary version so teammates on
 older stratt see the explicit pin error rather than confusing
-unknown-field errors (R2.3.13).  Pass --no-pin-bump to skip the prompt.
-
-See requirements R2.3.9 for the design.`,
+unknown-field errors.  Pass --no-pin-bump to skip the prompt.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()

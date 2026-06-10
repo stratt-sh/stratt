@@ -39,6 +39,11 @@ jobs:
           go-version: stable
           cache: true
 
+      # A tag must never publish untested binaries.  `stratt release`
+      # runs this locally, but this guards direct/automated tag pushes.
+      - name: Test
+        run: go test ./...
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stratt-sh/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/ui"
 )
 
 // fakeEngine is a controllable Engine for testing the runner.
@@ -51,6 +52,24 @@ func TestRunEngineQuietSuppressesAnnounce(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("expected silent stderr in quiet mode; got %q", stderr.String())
+	}
+}
+
+// TestRunEngineQuietViaStyleLevel — the global -q flag arrives as a
+// Quiet-level Style (not Options.Quiet); the runner must honor it so
+// `stratt -q run foo` actually suppresses status chrome.
+func TestRunEngineQuietViaStyleLevel(t *testing.T) {
+	var stderr bytes.Buffer
+	r := New(Options{
+		Stderr: &stderr,
+		Style:  ui.NewStyle(&bytes.Buffer{}, &stderr, ui.ColorNever, ui.Quiet),
+	})
+	eng := &fakeEngine{name: "uv run pytest"}
+	if err := r.RunEngine(context.Background(), eng, nil); err != nil {
+		t.Fatal(err)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("expected silent stderr when style level is Quiet; got %q", stderr.String())
 	}
 }
 

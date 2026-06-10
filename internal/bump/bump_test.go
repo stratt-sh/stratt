@@ -550,6 +550,45 @@ func TestLoadFromGalaxyYMLEndToEnd(t *testing.T) {
 	}
 }
 
+// TestLoadFromGalaxyYMLQuotedVersion — a quoted version (`version:
+// "0.7.2"`) must still be found and bumped.  Regression: the synthesized
+// search template used to be the bare `version: {current_version}`, which
+// never matched a quoted value, aborting the release.
+func TestLoadFromGalaxyYMLQuotedVersion(t *testing.T) {
+	for _, line := range []string{
+		`version: "0.7.2"`,
+		`version: '0.7.2'`,
+		`version: 0.7.2  # keep in sync`,
+	} {
+		dir := t.TempDir()
+		writeFile(t, dir, "galaxy.yml", "namespace: x\nname: y\n"+line+"\n")
+
+		cfg, _, err := Load(dir)
+		if err != nil || cfg == nil {
+			t.Fatalf("%q: load: cfg=%v err=%v", line, cfg, err)
+		}
+		if cfg.CurrentVersion != "0.7.2" {
+			t.Fatalf("%q: CurrentVersion=%q", line, cfg.CurrentVersion)
+		}
+		plan, err := Compute(cfg, Minor, dir)
+		if err != nil {
+			t.Fatalf("%q: compute: %v", line, err)
+		}
+		for _, c := range plan.FileChanges {
+			if !c.Found {
+				t.Fatalf("%q: search string not found in galaxy.yml", line)
+			}
+		}
+		if err := Apply(plan); err != nil {
+			t.Fatalf("%q: apply: %v", line, err)
+		}
+		got, _ := os.ReadFile(filepath.Join(dir, "galaxy.yml"))
+		if !strings.Contains(string(got), "0.8.0") || strings.Contains(string(got), "0.7.2") {
+			t.Errorf("%q: galaxy.yml not bumped:\n%s", line, got)
+		}
+	}
+}
+
 // TestLoadGalaxyYMLPriorityBelowTOML — when both galaxy.yml and a TOML
 // bump config exist, the TOML config wins.
 func TestLoadGalaxyYMLPriorityBelowTOML(t *testing.T) {

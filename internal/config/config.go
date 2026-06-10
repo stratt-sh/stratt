@@ -235,7 +235,7 @@ type rawBump struct {
 // to the user verbatim — the message is intentionally explicit.
 var ErrConflict = errors.New(
 	"stratt config conflict: both stratt.toml and [tool.stratt] in pyproject.toml exist; " +
-		"consolidate into one (R2.3.3)",
+		"consolidate into one",
 )
 
 // Load reads and validates project config in root.  Returns a zero-value
@@ -290,7 +290,7 @@ func loadStrict(path string, target any) error {
 	}
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	return dec.Decode(target)
+	return enrichTOMLError(dec.Decode(target))
 }
 
 // extractPyprojectStratt locates the [tool.stratt] subtree in pyproject.toml
@@ -334,7 +334,7 @@ func extractPyprojectStratt(path string) (*rawProject, error) {
 	dec := toml.NewDecoder(bytes.NewReader(subBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("[tool.stratt]: %w", err)
+		return nil, fmt.Errorf("[tool.stratt]: %w", enrichTOMLError(err))
 	}
 	return &raw, nil
 }
@@ -366,7 +366,7 @@ func normalize(raw *rawProject) (*Project, error) {
 		// Duplicate-across-sections check.
 		if _, dup := p.Tasks[name]; dup {
 			return nil, fmt.Errorf(
-				"task %q defined in both [tasks] and [helpers]; pick one (R2.6.10)", name)
+				"task %q defined in both [tasks] and [helpers]; pick one", name)
 		}
 		p.Helpers[name] = t
 	}

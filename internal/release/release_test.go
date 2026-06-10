@@ -104,6 +104,48 @@ func TestReleaseNonInteractivePatchSuccess(t *testing.T) {
 	}
 }
 
+// TestReleaseCommitFalseWritesButDoesNotCommit — Options.Commit=false
+// (the review-then-merge flow) must rewrite the version files but make no
+// commit and no tag.  Regression: the override was parsed and documented
+// but never wired into release.Run.
+func TestReleaseCommitFalseWritesButDoesNotCommit(t *testing.T) {
+	dir := setupRepo(t, "1.2.3")
+	headBefore, _ := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
+	commitFalse := false
+	var stdout, stderr bytes.Buffer
+
+	err := Run(context.Background(), Options{
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      true, // should be forced off because commit is off
+		Commit:    &commitFalse,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	})
+	if err != nil {
+		t.Fatalf("release failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Files were rewritten.
+	body, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if !strings.Contains(string(body), `version = "1.2.4"`) {
+		t.Errorf("pyproject not rewritten:\n%s", body)
+	}
+	// No new commit.
+	headAfter, _ := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
+	if string(headBefore) != string(headAfter) {
+		t.Errorf("HEAD moved; a commit was created despite commit=false")
+	}
+	// No tag.
+	tagOut, _ := exec.Command("git", "-C", dir, "tag", "-l").CombinedOutput()
+	if strings.TrimSpace(string(tagOut)) != "" {
+		t.Errorf("tag created despite commit=false: %s", tagOut)
+	}
+}
+
 func TestReleasePreflightWrongBranchFails(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
 	mustRun(t, dir, "git", "checkout", "-b", "feature")
@@ -164,6 +206,29 @@ func TestReleaseCIRequiresKind(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--ci") {
 		t.Errorf("error should reference --ci: %v", err)
+	}
+}
+
+// TestReleaseNonInteractiveStdinFailsClearly — no verb, not --ci, and a
+// closed (non-terminal) stdin must produce actionable guidance instead of
+// a bare "EOF".
+func TestReleaseNonInteractiveStdinFailsClearly(t *testing.T) {
+	dir := setupRepo(t, "1.0.0")
+	err := Run(context.Background(), Options{
+		CWD:    dir,
+		Push:   false,
+		Stdin:  strings.NewReader(""), // EOF immediately
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	})
+	if err == nil {
+		t.Fatal("expected a non-interactive-stdin error")
+	}
+	if err.Error() == "EOF" {
+		t.Errorf("got bare EOF; want actionable guidance")
+	}
+	if !strings.Contains(err.Error(), "--ci") {
+		t.Errorf("error should mention --ci or a verb: %v", err)
 	}
 }
 

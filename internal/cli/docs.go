@@ -128,11 +128,14 @@ func docsCommand(root, action string) (string, []string, error) {
 				return "mkdocs", []string{"serve"}, nil
 			}
 		case "sphinx":
+			// Output under docs/_build/html so `stratt clean` and
+			// `stratt docs clean` (which target docs/_build) pick it up,
+			// matching the `docs` engine used by `stratt all`.
 			switch action {
 			case "build":
-				return "sphinx-build", []string{"docs", "_build/html"}, nil
+				return "sphinx-build", []string{"-b", "html", "docs", "docs/_build/html"}, nil
 			case "serve":
-				return "sphinx-autobuild", []string{"docs", "_build/html"}, nil
+				return "sphinx-autobuild", []string{"docs", "docs/_build/html"}, nil
 			}
 		case "hugo":
 			return hugoCommand(root, action)

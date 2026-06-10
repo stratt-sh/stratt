@@ -95,16 +95,52 @@ func loadAnsibleGalaxy(path string) (*Config, error) {
 	if fields["namespace"] == "" || fields["name"] == "" || fields["version"] == "" {
 		return nil, nil
 	}
+	// Build the search/replace templates from the version line as it
+	// actually appears, so quoting (`version: "1.2.3"`) and spacing
+	// survive the round-trip.  Without this, a quoted version never
+	// matches the literal search string and the bump aborts.
+	search, replace := galaxyVersionTemplates(data, fields["version"])
 	return &Config{
 		CurrentVersion: fields["version"],
 		Files: []FileEntry{{
 			Filename: "galaxy.yml",
-			Search:   "version: {current_version}",
-			Replace:  "version: {new_version}",
+			Search:   search,
+			Replace:  replace,
 		}},
 		Commit: true,
 		Tag:    true,
 	}, nil
+}
+
+// galaxyVersionTemplates returns the search/replace templates for the
+// top-level `version:` line in a galaxy.yml, faithful to how the value
+// is written (quoted or bare).  The version token in the line is swapped
+// for the {current_version} / {new_version} placeholders; any inline
+// comment is excluded so the search string stays a literal substring of
+// the file.  Falls back to the bare form if the line can't be located.
+func galaxyVersionTemplates(data []byte, version string) (search, replace string) {
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" || line[0] == ' ' || line[0] == '\t' || line[0] == '#' || line[0] == '-' {
+			continue
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 || strings.TrimSpace(line[:colon]) != "version" {
+			continue
+		}
+		segment := line
+		// Drop an inline comment (the value's own quotes protect a `#`
+		// inside the string from this heuristic).
+		if hash := strings.Index(segment, " #"); hash >= 0 {
+			segment = segment[:hash]
+		}
+		segment = strings.TrimRight(segment, " \t")
+		if strings.Contains(segment, version) {
+			return strings.Replace(segment, version, "{current_version}", 1),
+				strings.Replace(segment, version, "{new_version}", 1)
+		}
+	}
+	return "version: {current_version}", "version: {new_version}"
 }
 
 // parseGalaxyTopLevel pulls out plain `key: value` pairs from a galaxy.yml.

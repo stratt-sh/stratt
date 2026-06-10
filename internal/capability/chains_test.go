@@ -397,6 +397,28 @@ func TestTestChainAnsibleCollection(t *testing.T) {
 	}
 }
 
+// TestSetupAnsibleRequirementsYAMLSpelling — a playbook repo whose deps
+// file is spelled requirements.yaml (not .yml) must resolve a command
+// that references the file that actually exists.  Regression: the command
+// hardcoded requirements.yml even though detection accepts both.
+func TestSetupAnsibleRequirementsYAMLSpelling(t *testing.T) {
+	for _, name := range []string{"requirements.yml", "requirements.yaml"} {
+		dir := t.TempDir()
+		writeFile(t, dir, "ansible.cfg", "[defaults]\n")
+		writeFile(t, dir, name, "collections: []\n")
+
+		for _, verb := range []string{"setup", "sync"} {
+			got := New(dir).Resolve(verb)
+			if got.Engine == nil {
+				t.Fatalf("%s/%s: expected engine, got nil", name, verb)
+			}
+			if !strings.Contains(got.Engine.Name(), name) {
+				t.Errorf("%s/%s: engine %q should reference %q", name, verb, got.Engine.Name(), name)
+			}
+		}
+	}
+}
+
 // TestSetupComposesSubmoduleInit — when .gitmodules is present, setup
 // prepends `git submodule update --init --recursive` to the language
 // step via a multiEngine.

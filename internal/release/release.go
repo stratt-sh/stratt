@@ -48,6 +48,14 @@ type Options struct {
 	// Push controls whether to push commit + tag to origin after the bump.
 	Push bool
 
+	// Commit, when non-nil, overrides the bump config's `commit` setting
+	// (the CLI > project > user resolution happens in the caller).  A
+	// false value selects the "review then merge" workflow: stratt writes
+	// the bumped files but makes no commit, tag, or push — leaving the
+	// change for the user to review and merge.  Nil means "defer to the
+	// bump config" (which defaults to commit = true).
+	Commit *bool
+
 	// Remote is the git remote to push to.  Default "origin".
 	Remote string
 
@@ -102,6 +110,12 @@ func Run(ctx context.Context, opts Options) error {
 
 	repo := git.New(opts.CWD)
 
+	if !repo.IsRepo(ctx) {
+		return errors.New(
+			"not a git repository — `stratt release` runs inside a git repo " +
+				"(run `git init` first, or cd into your project)")
+	}
+
 	// Resolve release branch: explicit setting wins, otherwise detect.
 	if opts.Branch == "" {
 		detected, err := detectReleaseBranch(ctx, repo)
@@ -114,6 +128,51 @@ func Run(ctx context.Context, opts Options) error {
 
 	if err := preflight(ctx, repo, opts); err != nil {
 		return err
+	}
+
+	// Load bump configuration and resolve the version transition *before*
+	// the expensive verification suite, so the user answers the one-word
+	// prompt up front instead of babysitting the terminal for minutes only
+	// to be asked at the end (and so a non-interactive stdin fails fast).
+	cfg, warn, err := bump.Load(opts.CWD)
+	if err != nil {
+		return fmt.Errorf("loading bump config: %w", err)
+	}
+	if warn != "" {
+		fmt.Fprintf(opts.Stderr, "warning: %s\n", warn)
+	}
+	if cfg == nil {
+		return errors.New(
+			"no version-bump configuration found; add [bump] to stratt.toml " +
+				"or [tool.bumpversion] to pyproject.toml " +
+				"(see https://stratt.sh/docs/configuration/ for the supported locations)")
+	}
+
+	// An explicit commit override (from the CLI / project / user config)
+	// wins over the bump config's own `commit` setting.  Disabling commit
+	// selects the review-then-merge workflow, where there's nothing to tag
+	// or push either — stratt only writes the bumped files.
+	if opts.Commit != nil {
+		cfg.Commit = *opts.Commit
+	}
+	if !cfg.Commit {
+		cfg.Tag = false
+		opts.Push = false
+	}
+
+	// Determine the version transition: explicit > prompt.
+	action, err := resolveAction(opts, cfg, stdin)
+	if err != nil {
+		return err
+	}
+
+	// Confirmation gate for Major (a normal major bump or a major-line
+	// prerelease start; iterate/promote/relabel inherit the base already
+	// confirmed at start).
+	if (action.Op == bump.OpRelease || action.Op == bump.OpStart) && action.Kind == bump.Major {
+		if err := confirmMajor(opts, stdin); err != nil {
+			return err
+		}
 	}
 
 	// Full verification suite (`stratt all` or equivalent).  Runs before
@@ -135,36 +194,6 @@ func Run(ctx context.Context, opts Options) error {
 			return errors.New(
 				"working tree is dirty after pre-release checks " +
 					"(a formatter or autofixer modified files); commit those changes and retry")
-		}
-	}
-
-	// Load bump configuration.
-	cfg, warn, err := bump.Load(opts.CWD)
-	if err != nil {
-		return fmt.Errorf("loading bump config: %w", err)
-	}
-	if warn != "" {
-		fmt.Fprintf(opts.Stderr, "warning: %s\n", warn)
-	}
-	if cfg == nil {
-		return errors.New(
-			"no version-bump configuration found; add [bump] to stratt.toml " +
-				"or [tool.bumpversion] to pyproject.toml " +
-				"(see R2.4.7 for the supported locations)")
-	}
-
-	// Determine the version transition: explicit > prompt.
-	action, err := resolveAction(opts, cfg, stdin)
-	if err != nil {
-		return err
-	}
-
-	// Confirmation gate for Major (a normal major bump or a major-line
-	// prerelease start; iterate/promote/relabel inherit the base already
-	// confirmed at start).
-	if (action.Op == bump.OpRelease || action.Op == bump.OpStart) && action.Kind == bump.Major {
-		if err := confirmMajor(opts, stdin); err != nil {
-			return err
 		}
 	}
 
@@ -216,6 +245,14 @@ func Run(ctx context.Context, opts Options) error {
 		if err := repo.Tag(ctx, plan.TagName, plan.CommitMessage); err != nil {
 			return err
 		}
+	}
+
+	if !cfg.Commit {
+		fmt.Fprintf(opts.Stdout,
+			"\nFiles bumped to %s (commit disabled).  Review the changes, then commit and merge:\n"+
+				"  git diff\n  git add -A && git commit -m %q\n",
+			plan.NewVersion, plan.CommitMessage)
+		return nil
 	}
 
 	if opts.Push {
@@ -314,8 +351,15 @@ func resolveAction(opts Options, cfg *bump.Config, stdin *bufio.Reader) (bump.Ac
 		}
 		fmt.Fprint(opts.Stdout, "> ")
 		line, err := stdin.ReadString('\n')
-		if err != nil {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return bump.Action{}, err
+		}
+		if errors.Is(err, io.EOF) && strings.TrimSpace(line) == "" {
+			// stdin closed with nothing to read — not a terminal.  Give
+			// the same guidance as --ci instead of a bare "EOF".
+			return bump.Action{}, errors.New(
+				"no release verb provided and stdin is not interactive; " +
+					"pass a verb (patch|minor|major, preminor…, iterate, promote, relabel) or use --ci")
 		}
 		a, ok, perr := bump.ParseAction(strings.Fields(line), "")
 		if perr != nil {

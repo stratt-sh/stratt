@@ -28,6 +28,7 @@ func newReleaseCmd() *cobra.Command {
 		branchFlag     string
 		remoteFlag     string
 		noPushFlag     bool
+		noCommitFlag   bool
 		skipChecksFlag bool
 	)
 	cmd := &cobra.Command{
@@ -65,7 +66,7 @@ Examples:
 Release branch resolution (highest precedence first):
   --branch flag  >  [release] branch in stratt.toml  >  auto-detect (main → master)
 
-See requirements R2.4 for the full design.`,
+Full documentation: https://stratt.sh/docs/`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
@@ -112,6 +113,15 @@ See requirements R2.4 for the full design.`,
 			remote := remoteFlag
 			push := !noPushFlag
 
+			// commit is a tri-state: nil = defer to the bump config's own
+			// `commit` setting; non-nil = an explicit override from a CLI
+			// flag or config layer.
+			var commit *bool
+			if cmd.Flags().Changed("no-commit") {
+				v := !noCommitFlag
+				commit = &v
+			}
+
 			// Project layer.
 			if proj != nil && proj.Release != nil {
 				if !cmd.Flags().Changed("branch") && proj.Release.Branch != "" {
@@ -123,6 +133,9 @@ See requirements R2.4 for the full design.`,
 				if !cmd.Flags().Changed("no-push") && proj.Release.Push != nil {
 					push = *proj.Release.Push
 				}
+				if commit == nil && proj.Release.Commit != nil {
+					commit = proj.Release.Commit
+				}
 			}
 			// User layer (only applies when project hasn't set the field
 			// AND no CLI flag was passed).
@@ -130,6 +143,9 @@ See requirements R2.4 for the full design.`,
 				if !cmd.Flags().Changed("no-push") && usr.Release.Push != nil &&
 					(proj == nil || proj.Release == nil || proj.Release.Push == nil) {
 					push = *usr.Release.Push
+				}
+				if commit == nil && usr.Release.Commit != nil {
+					commit = usr.Release.Commit
 				}
 			}
 
@@ -141,6 +157,7 @@ See requirements R2.4 for the full design.`,
 				Branch:     branch,
 				Remote:     remote,
 				Push:       push,
+				Commit:     commit,
 				SkipChecks: skipChecksFlag,
 				Stdin:      cmd.InOrStdin(),
 				Stdout:     cmd.OutOrStdout(),
@@ -206,6 +223,7 @@ See requirements R2.4 for the full design.`,
 	cmd.Flags().StringVar(&branchFlag, "branch", "", "release branch (default: auto-detect main → master, or [release] branch from config)")
 	cmd.Flags().StringVar(&remoteFlag, "remote", "origin", "git remote for push")
 	cmd.Flags().BoolVar(&noPushFlag, "no-push", false, "do not push commit/tag to remote (default is to push)")
+	cmd.Flags().BoolVar(&noCommitFlag, "no-commit", false, "write the version bump but do not commit, tag, or push (review-then-merge flow)")
 	cmd.Flags().BoolVar(&skipChecksFlag, "skip-checks", false, "skip the `stratt all` pre-release verification (emergency use only)")
 	return cmd
 }

@@ -31,6 +31,14 @@ func New(dir string) *Repo {
 	return &Repo{Dir: dir}
 }
 
+// IsRepo reports whether r.Dir is inside a git working tree.  Used to
+// give a clear "not a git repository" message up front instead of a raw
+// "exit status 128" from a later git call.
+func (r *Repo) IsRepo(ctx context.Context) bool {
+	out, err := r.captureOutput(ctx, "rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
 // Branch returns the current branch name.  Works even on a repo with
 // no commits yet (where HEAD doesn't yet resolve to a sha) by using
 // symbolic-ref instead of rev-parse.

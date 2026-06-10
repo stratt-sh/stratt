@@ -345,6 +345,37 @@ func TestBuildRegistryAllShrinksWhenConstituentDisabled(t *testing.T) {
 	}
 }
 
+// TestBuildRegistryDisableWithAugmentedComposite guards the map-order
+// regression: disabling a built-in (`test`) while also augmenting a
+// composite (`all`) must prune the disabled task from the augmented
+// composite regardless of the order the two user tasks merge in.  Run
+// many times because proj.Tasks iteration order is randomized.
+func TestBuildRegistryDisableWithAugmentedComposite(t *testing.T) {
+	dir := goRepo(t)
+	for i := 0; i < 200; i++ {
+		res := capability.New(dir)
+		proj := &config.Project{
+			Tasks: map[string]config.Task{
+				"test": {Enabled: false},
+				"all":  {Before: []string{"echo hi"}, Enabled: true},
+			},
+		}
+		reg, err := BuildRegistry(res, proj)
+		if err != nil {
+			t.Fatalf("iteration %d: %v", i, err)
+		}
+		all := reg.Lookup("all")
+		if all == nil {
+			t.Fatalf("iteration %d: expected `all` to remain", i)
+		}
+		for _, e := range all.Tasks {
+			if e == "test" {
+				t.Fatalf("iteration %d: disabled `test` leaked into augmented `all`: %v", i, all.Tasks)
+			}
+		}
+	}
+}
+
 // TestBuildRegistryAllOverrideReplacesEntirely — user can override `all`
 // to be a narrower set.
 func TestBuildRegistryAllOverrideReplacesEntirely(t *testing.T) {

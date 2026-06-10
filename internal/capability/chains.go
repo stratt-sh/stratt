@@ -5,10 +5,12 @@
 package capability
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/stratt-sh/stratt/internal/detect"
 )
@@ -174,7 +176,11 @@ func (r *Resolver) SubmoduleStatus() (declared, uninitialized int) {
 	if !available("git") {
 		return 0, 0
 	}
-	cmd := exec.Command("git", "-C", r.root, "submodule", "status")
+	// Bounded so a wedged filesystem or a credential prompt can't hang
+	// `stratt doctor` indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", r.root, "submodule", "status")
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, 0
@@ -278,13 +284,13 @@ func (r *Resolver) resolveSetup() Engine {
 		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
 		inner = &execEngine{tool: "composer", argv: []string{"install"}}
-	case r.HasStack("ansible-playbook") && r.fileExists("requirements.yml", "requirements.yaml"):
+	case r.HasStack("ansible-playbook") && r.firstExisting("requirements.yml", "requirements.yaml") != "":
 		// Playbook/inventory repos: pull collection + role deps so the
 		// playbooks can actually run.  Collections take precedence over
 		// roles; both end up under the resolved collections path.
 		inner = &execEngine{
 			tool: "ansible-galaxy",
-			argv: []string{"install", "-r", "requirements.yml"},
+			argv: []string{"install", "-r", r.firstExisting("requirements.yml", "requirements.yaml")},
 		}
 	}
 	return r.composeWithSubmoduleInit(inner)
@@ -324,12 +330,12 @@ func (r *Resolver) resolveSync() Engine {
 		inner = &execEngine{tool: "go", argv: []string{"mod", "download"}}
 	case r.HasStack("php"):
 		inner = &execEngine{tool: "composer", argv: []string{"install", "--no-dev"}}
-	case r.HasStack("ansible-playbook") && r.fileExists("requirements.yml", "requirements.yaml"):
+	case r.HasStack("ansible-playbook") && r.firstExisting("requirements.yml", "requirements.yaml") != "":
 		// `--force` so a re-sync picks up pin moves in requirements.yml
 		// instead of silently keeping the previously-installed version.
 		inner = &execEngine{
 			tool: "ansible-galaxy",
-			argv: []string{"install", "-r", "requirements.yml", "--force"},
+			argv: []string{"install", "-r", r.firstExisting("requirements.yml", "requirements.yaml"), "--force"},
 		}
 	}
 	return r.composeWithSubmoduleInit(inner)
@@ -581,12 +587,19 @@ func (r *Resolver) hasAnsibleStack() bool {
 
 // fileExists reports whether any of the given filenames exist in the repo root.
 func (r *Resolver) fileExists(names ...string) bool {
+	return r.firstExisting(names...) != ""
+}
+
+// firstExisting returns the first of names that exists under the repo
+// root, or "" if none do.  Used when a command must reference the exact
+// filename that's present (e.g. requirements.yml vs requirements.yaml).
+func (r *Resolver) firstExisting(names ...string) string {
 	for _, n := range names {
 		if _, err := os.Stat(filepath.Join(r.root, n)); err == nil {
-			return true
+			return n
 		}
 	}
-	return false
+	return ""
 }
 
 // hasGitHubWorkflows reports whether .github/workflows/ contains at

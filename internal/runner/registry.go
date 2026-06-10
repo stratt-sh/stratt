@@ -90,7 +90,7 @@ func BuildRegistry(res *capability.Resolver, proj *config.Project) (*Registry, e
 		for name, ut := range proj.Helpers {
 			if existing, ok := r.tasks[name]; ok && existing.Source == SourceBuiltin {
 				return nil, fmt.Errorf(
-					"helper %q shadows a built-in command; built-ins must be in [tasks], not [helpers] (R2.6.10)",
+					"helper %q shadows a built-in command; built-ins must be in [tasks], not [helpers]",
 					name)
 			}
 			if err := r.merge(name, ut, true); err != nil {
@@ -118,9 +118,17 @@ func (r *Registry) merge(name string, ut config.Task, hidden bool) error {
 		// silently shrink when a constituent is disabled — `stratt all`
 		// just skips the disabled stage.  User-defined task references
 		// to disabled tasks are still strict validation errors.
+		//
+		// Prune from both pure built-in composites and *augmented* ones:
+		// because user tasks merge in random map order, the composite may
+		// already have been turned into SourceAugmented (carrying the
+		// built-in's members) by the time the disable is processed.  An
+		// overridden composite (SourceOverridden) keeps its user-declared
+		// members untouched — referencing a disabled task there is a
+		// deliberate error, surfaced by validate().
 		delete(r.tasks, name)
 		for _, t := range r.tasks {
-			if t.Source == SourceBuiltin {
+			if t.Source == SourceBuiltin || t.Source == SourceAugmented {
 				t.Tasks = withoutString(t.Tasks, name)
 			}
 		}
@@ -170,7 +178,7 @@ func (r *Registry) merge(name string, ut config.Task, hidden bool) error {
 	case !isBuiltin && len(ut.Run) == 0 && len(ut.Tasks) == 0:
 		// Pure user task with no run and no tasks does nothing
 		// meaningful.  This is a likely user mistake; surface it.
-		return fmt.Errorf("task %q has no `run` and no `tasks`; nothing to do (R2.6.1)", name)
+		return fmt.Errorf("task %q has no `run` and no `tasks`; nothing to do", name)
 
 	default:
 		// Pure user task (add mode).  May or may not have a body — a

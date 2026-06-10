@@ -275,7 +275,8 @@ func TestDoctorReportsBrokenProjectConfigWithoutFailing(t *testing.T) {
 	for _, want := range []string{
 		"Project config:",
 		"error loading config",
-		"strict mode",
+		"unknown configuration key",
+		"bogus_field",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in:\n%s", want, body)

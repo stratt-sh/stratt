@@ -42,6 +42,34 @@ images:
 	}
 }
 
+// TestSetImagePreservesIndentAndComments — the edit must not re-indent
+// the file or drop comments.  Regression: yaml.Marshal defaults to a
+// 4-space indent, so a standard 2-space overlay came back fully
+// re-indented on every `stratt deploy`.
+func TestSetImagePreservesIndentAndComments(t *testing.T) {
+	dir := t.TempDir()
+	path := writeOverlay(t, dir, "prod", `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# pin the app image
+images:
+  - name: myapp
+    newTag: 1.14.0
+`)
+	if _, err := SetImage(path, "myapp", "1.14.1"); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), "  - name: myapp") {
+		t.Errorf("2-space indent not preserved:\n%s", body)
+	}
+	if strings.Contains(string(body), "    - name: myapp") {
+		t.Errorf("file was re-indented to 4 spaces:\n%s", body)
+	}
+	if !strings.Contains(string(body), "# pin the app image") {
+		t.Errorf("comment dropped:\n%s", body)
+	}
+}
+
 func TestSetImageNamedTarget(t *testing.T) {
 	dir := t.TempDir()
 	path := writeOverlay(t, dir, "prod", `images:

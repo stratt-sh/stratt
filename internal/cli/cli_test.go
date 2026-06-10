@@ -220,7 +220,7 @@ func TestSelfBypassesBrokenProjectConfig(t *testing.T) {
 		if exit != 0 {
 			t.Errorf("%v: exit got %d, want 0 (stderr=%q)", args, exit, stderr)
 		}
-		if strings.Contains(string(stderr), "strict mode") {
+		if strings.Contains(string(stderr), "unknown configuration key") {
 			t.Errorf("%v: project-config error leaked through; stderr=%q", args, stderr)
 		}
 	}
@@ -253,8 +253,8 @@ func TestNonExemptCommandStillRespectsBrokenConfig(t *testing.T) {
 	if exit == 0 {
 		t.Errorf("expected non-zero exit on malformed config, got 0; stderr=%q", stderr)
 	}
-	if !strings.Contains(string(stderr), "strict mode") {
-		t.Errorf("expected strict-mode error message; got %q", stderr)
+	if !strings.Contains(string(stderr), "unknown configuration key") {
+		t.Errorf("expected unknown-key error message; got %q", stderr)
 	}
 }
 

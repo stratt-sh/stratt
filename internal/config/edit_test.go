@@ -47,6 +47,58 @@ name = "x"
 	}
 }
 
+// TestSetRequiredStrattPreservesComments — the edit must be line-surgical,
+// leaving the user's comments and unrelated keys intact (regression: it
+// used to round-trip the whole document through a TOML marshaller, wiping
+// every comment).
+func TestSetRequiredStrattPreservesComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stratt.toml")
+	original := "# top comment\nrequired_stratt = \">= 1.0.0\"  # pin\n\n[release]\n# keep me\nbranch = \"main\"\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetRequiredStratt(path, ">= 2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	for _, want := range []string{"# top comment", "[release]", "# keep me", `branch = "main"`, `required_stratt = ">= 2.0.0"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("missing %q after edit; got:\n%s", want, body)
+		}
+	}
+	if strings.Contains(string(body), "1.0.0") {
+		t.Errorf("old constraint should be replaced:\n%s", body)
+	}
+	// The replaced line should be the only required_stratt line.
+	if n := strings.Count(string(body), "required_stratt"); n != 1 {
+		t.Errorf("expected exactly one required_stratt line, got %d:\n%s", n, body)
+	}
+}
+
+// TestSetRequiredStrattPyprojectPreservesComments — same guarantee for the
+// nested [tool.stratt] case, including unrelated [tool.*] tables.
+func TestSetRequiredStrattPyprojectPreservesComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pyproject.toml")
+	original := "[build-system]\n# build comment\nrequires = [\"hatchling\"]\n\n[tool.stratt]\n# stratt comment\nrequired_stratt = \">= 1.0.0\"\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetRequiredStratt(path, ">= 2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	for _, want := range []string{"[build-system]", "# build comment", `requires = ["hatchling"]`, "# stratt comment", `required_stratt = ">= 2.0.0"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("missing %q after edit; got:\n%s", want, body)
+		}
+	}
+	if strings.Contains(string(body), "1.0.0") {
+		t.Errorf("old constraint should be replaced:\n%s", body)
+	}
+}
+
 func TestSetRequiredStrattRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stratt.toml")

@@ -72,7 +72,7 @@ to run ` + "`brew upgrade " + strattBrewFormula + "`" + ` on your behalf.
 The update is gated on:
   - Not running in CI ($CI / $GITHUB_ACTIONS)
   - The latest release being strictly newer than the running version
-  - Attestation verification succeeding (direct-install path; R4.3)`,
+  - Attestation verification succeeding (direct-install path)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch, err := resolveChannel(channel)

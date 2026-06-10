@@ -3,10 +3,15 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -16,6 +21,12 @@ import (
 	"github.com/stratt-sh/stratt/internal/update"
 	"github.com/stratt-sh/stratt/internal/version"
 )
+
+// notifier tracks the background update-check goroutine so Run can wait
+// for it (briefly) before the process exits — otherwise fast commands
+// exit before the check writes its cache and the "update available"
+// advisory never appears.
+var notifier sync.WaitGroup
 
 // BuildInfo carries version metadata injected at link time.
 type BuildInfo struct {
@@ -51,27 +62,40 @@ func styleFrom(ctx context.Context) *ui.Style {
 // Run executes the root command and returns the exit code.
 //
 // The root command has SilenceErrors: true so we own the error
-// presentation here.  Per R5.5: 1 = user error, 2 = system error.
-// Future error types (e.g., update-available advisories) may extend
-// to 3+.
+// presentation here.  Exit codes: 0 = success, 130 = interrupted
+// (Ctrl-C / SIGTERM), 1 = any other error.
+//
+// SIGINT/SIGTERM cancel the command context so in-flight child processes
+// (the careful exec.CommandContext plumbing throughout) are torn down
+// instead of orphaned.
 //
 // When stdout is a terminal we frame the whole invocation: a header rule
 // naming the command above the output, and a blank line below, so output
 // doesn't blend into the shell prompt or surrounding text.  This is purely
 // cosmetic and interactive-only: piped or redirected output is left
-// untouched so scripts see exactly what the command emits.  It lives here
-// rather than in Execute so it wraps every path uniformly — subcommands,
-// `--help` (which bypasses the pre-run hooks), and error output alike.
+// untouched so scripts see exactly what the command emits, and the global
+// -q/--quiet flag suppresses it.  It lives here rather than in Execute so
+// it wraps every path uniformly — subcommands, `--help` (which bypasses
+// the pre-run hooks), and error output alike.
 func Run(b BuildInfo) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	root := newRootCmd(b)
 	mode := resolveColorMode(colorFlagFromArgs(os.Args[1:]))
-	pad := term.IsTerminal(int(os.Stdout.Fd()))
+	pad := term.IsTerminal(int(os.Stdout.Fd())) && !quietFromArgs(os.Args[1:])
 	if pad {
 		st := ui.NewStyle(os.Stdout, os.Stderr, mode, ui.Normal)
 		fmt.Fprintln(os.Stdout) // blank line above the header, separating from the prompt
 		printHeader(os.Stdout, st, headerLabel(root), terminalWidth())
 	}
-	err := root.Execute()
+	err := root.ExecuteContext(ctx)
+
+	// Wait briefly for the background update check to finish so its cache
+	// write isn't lost when a fast command would otherwise exit first.
+	// Bounded so a slow network never delays the user past the command.
+	waitForNotifier(2 * time.Second)
+
 	if err != nil {
 		// Color is gated on stderr (where the error goes), not stdout, so a
 		// redirected stdout with an interactive stderr still reddens it.
@@ -81,10 +105,28 @@ func Run(b BuildInfo) int {
 	if pad {
 		fmt.Fprintln(os.Stdout)
 	}
-	if err != nil {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, context.Canceled) || ctx.Err() != nil:
+		return 130 // interrupted
+	default:
 		return 1
 	}
-	return 0
+}
+
+// waitForNotifier blocks until the background update-check goroutine
+// finishes or timeout elapses, whichever comes first.
+func waitForNotifier(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		notifier.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
 }
 
 // headerLabel is the command path shown in the interactive header, e.g.
@@ -112,6 +154,22 @@ func colorFlagFromArgs(args []string) string {
 		}
 	}
 	return ""
+}
+
+// quietFromArgs reports whether -q/--quiet appears in raw args, before
+// cobra has parsed them — the header is printed pre-Execute, so it can't
+// read the bound flag yet.  Recognizes the combined short form too (e.g.
+// `-vq`), matching how cobra would parse it.
+func quietFromArgs(args []string) bool {
+	for _, a := range args {
+		if a == "--quiet" {
+			return true
+		}
+		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "q") {
+			return true
+		}
+	}
+	return false
 }
 
 // terminalWidth returns stdout's column count, clamped to a sane range so
@@ -273,11 +331,11 @@ func parseVerbosityString(s string) ui.Level {
 // required_stratt (R2.3.12), and (in the background) opportunistically
 // pings the update notifier (R4.12).  Returns nil if either no config
 // exists or the constraint passes.  Skipped for diagnostic and
-// self-management commands (`version`, `doctor`, `help`, `self`) so
-// users can introspect — and update — their binary regardless of the
-// project config state.  Without the `self` exemption, a malformed
-// stratt.toml would block `stratt self check`/`self update`, which is
-// exactly when the user most needs them.
+// self-management commands (`version`, `doctor`, `help`, `self`, `clone`,
+// `agents`) so users can introspect — and update — their binary
+// regardless of the project config state.  Without the `self` exemption,
+// a malformed stratt.toml would block `stratt self check`/`self update`,
+// which is exactly when the user most needs them.
 func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 	// `self` has subcommands (check, update, ...); cmd.Name() reports
 	// the deepest command, so walk up to recognize the family.
@@ -320,19 +378,37 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 	// Two-stage notifier: print cached advisory synchronously (no IO race),
 	// then refresh the cache in the background for the next invocation.
 	// Honor the user's release channel so prerelease users are notified
-	// about RCs.  A bad config value just falls back to default here —
-	// `stratt self check/update` surface the error explicitly.
+	// about RCs, their auto_check opt-out, and their check_interval.  A bad
+	// config value just falls back to default here — `stratt self
+	// check/update` surface the error explicitly.
 	ch := update.ChannelDefault
+	autoCheck := true
+	var interval time.Duration
 	if usr, _ := config.LoadUser(); usr != nil && usr.Update != nil {
 		if c, err := update.NormalizeChannel(usr.Update.Channel); err == nil {
 			ch = c
 		}
+		if usr.Update.AutoCheck != nil {
+			autoCheck = *usr.Update.AutoCheck
+		}
+		if usr.Update.CheckInterval != "" {
+			if d, err := time.ParseDuration(usr.Update.CheckInterval); err == nil && d > 0 {
+				interval = d
+			}
+		}
 	}
 	update.NotifyIfBehind(os.Stderr, b.Version, strattBrewFormula)
-	go update.RefreshNotifierState(cmd.Context(), update.Options{
-		Repo:           strattUpstreamRepo,
-		Channel:        ch,
-		CurrentVersion: b.Version,
-	})
+	if autoCheck {
+		notifier.Add(1)
+		go func() {
+			defer notifier.Done()
+			update.RefreshNotifierState(cmd.Context(), update.Options{
+				Repo:           strattUpstreamRepo,
+				Channel:        ch,
+				CurrentVersion: b.Version,
+				Interval:       interval,
+			})
+		}()
+	}
 	return nil
 }

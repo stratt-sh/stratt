@@ -8,6 +8,7 @@
 package kustomize
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -90,11 +91,20 @@ func SetImage(overlayPath, imageName, version string) (*ImageChange, error) {
 	tagNode.Tag = "!!str"
 	tagNode.Value = version
 
-	out, err := yaml.Marshal(&root)
-	if err != nil {
+	// Encode with a 2-space indent (yaml.Marshal defaults to 4), matching
+	// the near-universal kustomization.yaml convention so the edit doesn't
+	// re-indent the whole file — the comment/formatting preservation this
+	// package promises extends to indentation width.
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
 		return nil, fmt.Errorf("re-marshal: %w", err)
 	}
-	if err := os.WriteFile(overlayPath, out, 0o644); err != nil {
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("re-marshal: %w", err)
+	}
+	if err := os.WriteFile(overlayPath, buf.Bytes(), 0o644); err != nil {
 		return nil, err
 	}
 	return change, nil

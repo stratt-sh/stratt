@@ -1,0 +1,18 @@
+# Keep dependencies current — especially the sigstore-go trust anchor
+# (and its large transitive tree) that the self-update verification path
+# relies on, plus the pinned GitHub Actions.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

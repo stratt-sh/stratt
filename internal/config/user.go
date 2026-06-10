@@ -111,7 +111,7 @@ func LoadUser() (*User, error) {
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, enrichTOMLError(err))
 	}
 
 	u := &User{Source: path}

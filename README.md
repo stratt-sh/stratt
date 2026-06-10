@@ -12,6 +12,8 @@ Full documentation lives at **[stratt.sh](https://stratt.sh)**.
 
 ## Install
 
+Linux and macOS are supported (Windows via WSL).
+
 ```sh
 brew tap stratt-sh/tap
 brew install stratt

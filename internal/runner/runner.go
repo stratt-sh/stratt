@@ -65,6 +65,14 @@ type Runner struct {
 	opts Options
 }
 
+// quiet reports whether status lines (→ engine, ▶ task, + shell) should
+// be suppressed.  Honors both the explicit Options.Quiet and the global
+// -q flag, which arrives as a Quiet-level Style — so `stratt -q run foo`
+// stays quiet without every call site having to set Options.Quiet too.
+func (r *Runner) quiet() bool {
+	return r.opts.Quiet || (r.opts.Style != nil && r.opts.Style.Level == ui.Quiet)
+}
+
 // New returns a Runner with defaults filled in.
 func New(opts Options) *Runner {
 	if opts.Stdout == nil {
@@ -105,7 +113,7 @@ func (r *Runner) RunEngine(ctx context.Context, engine capability.Engine, args [
 	if engine == nil {
 		return ErrNoEngine
 	}
-	if !r.opts.Quiet {
+	if !r.quiet() {
 		fmt.Fprint(r.opts.Stderr, r.opts.Style.Progress(engine.Name()))
 	}
 	return engine.Run(ctx, args)
@@ -139,7 +147,7 @@ func (r *Runner) RunTask(ctx context.Context, name string) error {
 //
 // Stops on first error.
 func (r *Runner) runTask(ctx context.Context, task *Task) error {
-	if !r.opts.Quiet && (len(task.Tasks) > 0 || len(task.Before) > 0 || len(task.After) > 0 || len(task.Run) > 0) {
+	if !r.quiet() && (len(task.Tasks) > 0 || len(task.Before) > 0 || len(task.After) > 0 || len(task.Run) > 0) {
 		// Announce composite/user tasks so the output trail makes sense.
 		// Pure-engine tasks announce themselves in RunEngine.
 		if task.Engine == nil || len(task.Tasks) > 0 || len(task.Before) > 0 || len(task.After) > 0 {
@@ -181,7 +189,7 @@ func (r *Runner) runTask(ctx context.Context, task *Task) error {
 // stdout/stderr.  Uses `sh -c` to support shell features (pipes, &&, etc.)
 // per Make-style task semantics.
 func (r *Runner) execShell(ctx context.Context, cmdStr string) error {
-	if !r.opts.Quiet {
+	if !r.quiet() {
 		fmt.Fprint(r.opts.Stderr, r.opts.Style.ShellCmd(cmdStr))
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
