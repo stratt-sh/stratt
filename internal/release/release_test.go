@@ -146,6 +146,52 @@ func TestReleaseCommitFalseWritesButDoesNotCommit(t *testing.T) {
 	}
 }
 
+// TestPrintPlanIsClean locks in the tidy plan rendering: the version
+// transition shown once in the header, repo-relative paths, multiple
+// matches in one file collapsed to a count, and none of the escaped /
+// multi-line search-chunk noise the old format dumped.
+func TestPrintPlanIsClean(t *testing.T) {
+	root := filepath.FromSlash("/repo")
+	plan := &bump.Plan{
+		OldVersion:    "0.2.0",
+		NewVersion:    "0.3.0",
+		CommitMessage: "Bump version: 0.2.0 → 0.3.0",
+		TagName:       "0.3.0",
+		Cfg:           &bump.Config{Commit: true, Tag: true},
+		FileChanges: []bump.FileChange{
+			{Path: filepath.FromSlash("/repo/backend/pyproject.toml"), OldChunk: `version = "0.2.0"`, NewChunk: `version = "0.3.0"`, Found: true},
+			{Path: filepath.FromSlash("/repo/frontend/package-lock.json"), OldChunk: "\"version\": \"0.2.0\"", NewChunk: "\"version\": \"0.3.0\"", Found: true},
+			{Path: filepath.FromSlash("/repo/frontend/package-lock.json"), OldChunk: "\"version\": \"0.2.0\"", NewChunk: "\"version\": \"0.3.0\"", Found: true},
+		},
+	}
+	var buf bytes.Buffer
+	if err := printPlan(&buf, plan, root); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	t.Logf("\n%s", out)
+
+	wants := []string{
+		"Bump 0.2.0 → 0.3.0",
+		filepath.FromSlash("backend/pyproject.toml"),
+		filepath.FromSlash("frontend/package-lock.json") + "  (2 matches)",
+		`Commit: "Bump version: 0.2.0 → 0.3.0"`,
+		"Tag:    0.3.0",
+	}
+	for _, w := range wants {
+		if !strings.Contains(out, w) {
+			t.Errorf("plan output missing %q:\n%s", w, out)
+		}
+	}
+	// No absolute paths and no escaped-quote noise.
+	if strings.Contains(out, filepath.FromSlash("/repo/")) {
+		t.Errorf("absolute path leaked into plan:\n%s", out)
+	}
+	if strings.Contains(out, `\"`) {
+		t.Errorf("escaped search-chunk noise leaked into plan:\n%s", out)
+	}
+}
+
 func TestReleasePreflightWrongBranchFails(t *testing.T) {
 	dir := setupRepo(t, "1.0.0")
 	mustRun(t, dir, "git", "checkout", "-b", "feature")

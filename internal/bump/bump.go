@@ -278,15 +278,6 @@ func chunkPresent(path, chunk string) (bool, error) {
 	return strings.Contains(string(data), chunk), nil
 }
 
-// PreviewLine returns a one-line human-readable summary of a FileChange
-// suitable for a dry-run display.
-func (c FileChange) PreviewLine() string {
-	if !c.Found {
-		return fmt.Sprintf("  %s — NOT FOUND: %q", c.Path, c.OldChunk)
-	}
-	return fmt.Sprintf("  %s: %q → %q", c.Path, c.OldChunk, c.NewChunk)
-}
-
 // semverRE matches a normalized MAJOR.MINOR.PATCH version.  Exposed so
 // other packages can validate inputs without re-implementing the rule.
 var semverRE = regexp.MustCompile(`^\d+\.\d+\.\d+$`)

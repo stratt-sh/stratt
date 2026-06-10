@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/stratt-sh/stratt/internal/bump"
@@ -202,7 +203,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("computing bump plan: %w", err)
 	}
-	if err := printPlan(opts.Stdout, plan); err != nil {
+	if err := printPlan(opts.Stdout, plan, opts.CWD); err != nil {
 		return err
 	}
 
@@ -432,21 +433,61 @@ func confirm(opts Options, stdin *bufio.Reader, prompt string, defaultYes bool) 
 	}
 }
 
-// printPlan renders a dry-run preview to w.
-func printPlan(w io.Writer, p *bump.Plan) error {
-	fmt.Fprintf(w, "\nBump plan (%s → %s):\n", p.OldVersion, p.NewVersion)
+// printPlan renders a dry-run preview to w.  The version transition leads,
+// then the files that will change — one line per file (collapsing the
+// several matches a lockfile may have), with repo-relative paths.  The raw
+// search/replace chunks are deliberately omitted: they're the same version
+// transition already shown in the header, and dumping escaped, sometimes
+// multi-line strings made the output a wall of noise.
+func printPlan(w io.Writer, p *bump.Plan, root string) error {
+	fmt.Fprintf(w, "\nBump %s → %s\n\n", p.OldVersion, p.NewVersion)
+
+	// Collapse changes to one entry per file, preserving first-seen order.
+	var order []string
+	matches := map[string]int{}
+	missing := map[string]bool{}
 	for _, c := range p.FileChanges {
-		fmt.Fprintln(w, c.PreviewLine())
+		rel := relForDisplay(root, c.Path)
+		if _, seen := matches[rel]; !seen {
+			order = append(order, rel)
+		}
+		matches[rel]++
+		if !c.Found {
+			missing[rel] = true
+		}
 	}
+	for _, rel := range order {
+		switch {
+		case missing[rel]:
+			fmt.Fprintf(w, "  %s  — NOT FOUND\n", rel)
+		case matches[rel] > 1:
+			fmt.Fprintf(w, "  %s  (%d matches)\n", rel, matches[rel])
+		default:
+			fmt.Fprintf(w, "  %s\n", rel)
+		}
+	}
+
+	fmt.Fprintln(w)
 	if p.Cfg.Commit {
-		fmt.Fprintf(w, "Commit message: %q\n", p.CommitMessage)
+		fmt.Fprintf(w, "Commit: %q\n", p.CommitMessage)
 	} else {
-		fmt.Fprintln(w, "Commit: disabled in config")
+		fmt.Fprintln(w, "Commit: disabled")
 	}
 	if p.Cfg.Tag {
-		fmt.Fprintf(w, "Tag:            %s\n", p.TagName)
+		fmt.Fprintf(w, "Tag:    %s\n", p.TagName)
 	} else {
-		fmt.Fprintln(w, "Tag: disabled in config")
+		fmt.Fprintln(w, "Tag:    disabled")
 	}
 	return nil
+}
+
+// relForDisplay renders path relative to root for display, falling back to
+// the absolute path when it lies outside root or root is unknown.
+func relForDisplay(root, path string) string {
+	if root != "" {
+		if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	return path
 }
