@@ -401,7 +401,7 @@ func (r *Resolver) resolveRelease() Engine {
 	switch {
 	case r.hasBumpConfig():
 		return &delegateEngine{
-			display:     "native bump engine (reads [tool.bumpversion])",
+			display:     "native bump engine (reads " + r.bumpConfigSource() + ")",
 			delegateCmd: "stratt release",
 		}
 	case r.fileExists(".goreleaser.yaml", ".goreleaser.yml"):
@@ -623,33 +623,40 @@ func (r *Resolver) hasGitHubWorkflows() bool {
 }
 
 // hasBumpConfig reports whether any recognized bump-my-version-style
-// configuration exists in the repo.  See R2.4.7 for the full chain.
+// configuration exists in the repo.
 func (r *Resolver) hasBumpConfig() bool {
-	if r.fileExists(".bumpversion.toml", ".bumpversion.cfg") {
-		return true
+	return r.bumpConfigSource() != ""
+}
+
+// bumpConfigSource names where the version-bump config lives, as a short
+// phrase for `stratt doctor` (e.g. "[bump] in stratt.toml").  Returns ""
+// when none is present.  Precedence mirrors bump.Load so the reported
+// source is the one that actually wins.
+func (r *Resolver) bumpConfigSource() string {
+	switch {
+	case r.tomlHasSection("stratt.toml", "bump"):
+		return "[bump] in stratt.toml"
+	case r.tomlHasSection("pyproject.toml", "tool.stratt.bump"):
+		return "[tool.stratt.bump] in pyproject.toml"
+	case r.tomlHasSection("pyproject.toml", "tool.bumpversion"):
+		return "[tool.bumpversion] in pyproject.toml"
+	case r.fileExists(".bumpversion.toml"):
+		return ".bumpversion.toml"
+	case r.fileExists(".bumpversion.cfg"):
+		return ".bumpversion.cfg"
 	}
-	// `[tool.bumpversion]` or `[tool.stratt.bump]` in pyproject.toml, or
-	// `[bump]` in stratt.toml.  Done with a coarse byte scan for now;
-	// the config loader will do this properly once it lands.
-	for _, file := range []string{"pyproject.toml", "stratt.toml"} {
-		path := filepath.Join(r.root, file)
-		b, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		body := string(b)
-		switch file {
-		case "pyproject.toml":
-			if containsSection(body, "tool.bumpversion") || containsSection(body, "tool.stratt.bump") {
-				return true
-			}
-		case "stratt.toml":
-			if containsSection(body, "bump") {
-				return true
-			}
-		}
+	return ""
+}
+
+// tomlHasSection reports whether the named TOML section header is present
+// in file (relative to the repo root).  Coarse byte scan — sufficient for
+// doctor's display heuristics.
+func (r *Resolver) tomlHasSection(file, section string) bool {
+	b, err := os.ReadFile(filepath.Join(r.root, file))
+	if err != nil {
+		return false
 	}
-	return false
+	return containsSection(string(b), section)
 }
 
 // containsSection reports whether body contains a TOML section header

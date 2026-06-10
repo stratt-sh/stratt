@@ -174,7 +174,7 @@ func TestReleaseChainBumpMyVersionInPyproject(t *testing.T) {
 	if got.Engine.Status() != StatusReady {
 		t.Errorf("expected StatusReady (delegate), got %v", got.Engine.Status())
 	}
-	if got.Engine.Name() != "native bump engine (reads [tool.bumpversion])" {
+	if got.Engine.Name() != "native bump engine (reads [tool.bumpversion] in pyproject.toml)" {
 		t.Errorf("got %q", got.Engine.Name())
 	}
 }
@@ -191,7 +191,7 @@ func TestReleaseChainBumpMyVersionStandaloneFile(t *testing.T) {
 	if got.Engine == nil {
 		t.Fatal("expected engine for go + .bumpversion.toml, got nil")
 	}
-	if got.Engine.Name() != "native bump engine (reads [tool.bumpversion])" {
+	if got.Engine.Name() != "native bump engine (reads .bumpversion.toml)" {
 		t.Errorf("expected native bump engine; got %q", got.Engine.Name())
 	}
 }
@@ -286,7 +286,7 @@ func TestPyprojectBumpConfigSubsection(t *testing.T) {
 
 	r := New(dir)
 	got := r.Resolve("release")
-	if got.Engine == nil || got.Engine.Name() != "native bump engine (reads [tool.bumpversion])" {
+	if got.Engine == nil || got.Engine.Name() != "native bump engine (reads [tool.stratt.bump] in pyproject.toml)" {
 		t.Errorf("got %v", got.Engine)
 	}
 }
@@ -299,7 +299,7 @@ func TestStrattTomlBumpSection(t *testing.T) {
 
 	r := New(dir)
 	got := r.Resolve("release")
-	if got.Engine == nil || got.Engine.Name() != "native bump engine (reads [tool.bumpversion])" {
+	if got.Engine == nil || got.Engine.Name() != "native bump engine (reads [bump] in stratt.toml)" {
 		t.Errorf("got %v", got.Engine)
 	}
 }
