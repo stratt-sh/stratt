@@ -13,16 +13,18 @@ import (
 
 // resolveChannel picks the release channel for self update/check: an
 // explicit --channel flag wins; otherwise [update].channel from the user
-// config; otherwise the default.  The deprecated "stable" alias folds to
-// "default", and an unrecognized value is rejected (NormalizeChannel).
-func resolveChannel(flagVal string) (string, error) {
+// config; otherwise, when the running binary is itself a prerelease, the
+// prerelease channel (so an rc user sees newer rcs); otherwise the
+// default.  The deprecated "stable" alias folds to "default", and an
+// unrecognized value is rejected (EffectiveChannel/NormalizeChannel).
+func resolveChannel(flagVal, currentVersion string) (string, error) {
 	c := flagVal
 	if c == "" {
 		if usr, err := config.LoadUser(); err == nil && usr != nil && usr.Update != nil {
 			c = usr.Update.Channel
 		}
 	}
-	return update.NormalizeChannel(c)
+	return update.EffectiveChannel(c, currentVersion)
 }
 
 // newSelfCmd wires the `stratt self` subcommand group:
@@ -75,7 +77,7 @@ The update is gated on:
   - Attestation verification succeeding (direct-install path)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ch, err := resolveChannel(channel)
+			ch, err := resolveChannel(channel, b.Version)
 			if err != nil {
 				return err
 			}
@@ -249,7 +251,7 @@ func newSelfCheckCmd(b BuildInfo) *cobra.Command {
 			kind, _ := update.DetectInstall()
 			fmt.Fprintf(out, "Install method: %s\n", kind)
 
-			ch, err := resolveChannel(channel)
+			ch, err := resolveChannel(channel, b.Version)
 			if err != nil {
 				return err
 			}

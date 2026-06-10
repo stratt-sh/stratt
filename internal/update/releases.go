@@ -57,6 +57,30 @@ func NormalizeChannel(c string) (string, error) {
 	}
 }
 
+// EffectiveChannel resolves which release channel to track, given the
+// channel the user explicitly requested (via --channel or [update].channel
+// — pass "" when unset) and the running version.
+//
+// When no channel is explicitly requested AND the running binary is itself
+// a prerelease, it defaults to the prerelease channel.  Otherwise an rc
+// user is told they're "up to date" while newer rcs exist, because the
+// default channel only sees stable releases — which trail the rc line.
+// An explicit request (including "default"/"stable") always wins.
+func EffectiveChannel(requested, currentVersion string) (string, error) {
+	if requested == "" && IsPrereleaseVersion(currentVersion) {
+		return ChannelPrerelease, nil
+	}
+	return NormalizeChannel(requested)
+}
+
+// IsPrereleaseVersion reports whether v carries a semver prerelease
+// suffix (e.g. "0.19.0-rc.6").  Non-semver inputs ("dev", "") are not
+// prereleases.
+func IsPrereleaseVersion(v string) bool {
+	v = normalizeSemver(v)
+	return semver.IsValid(v) && semver.Prerelease(v) != ""
+}
+
 // LatestRelease returns the most recent release for repo (owner/name)
 // that matches channel.  Returns ErrNoRelease if no eligible release
 // exists.  ctx is honored throughout.

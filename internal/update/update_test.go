@@ -109,6 +109,54 @@ func TestIsNewer(t *testing.T) {
 	}
 }
 
+func TestIsPrereleaseVersion(t *testing.T) {
+	cases := map[string]bool{
+		"0.19.0-rc.6":  true,
+		"v0.19.0-rc.1": true,
+		"1.0.0-beta.2": true,
+		"1.0.0":        false,
+		"v2.3.4":       false,
+		"dev":          false,
+		"":             false,
+	}
+	for v, want := range cases {
+		if got := IsPrereleaseVersion(v); got != want {
+			t.Errorf("IsPrereleaseVersion(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+func TestEffectiveChannel(t *testing.T) {
+	cases := []struct {
+		requested, version, want string
+	}{
+		// A prerelease build with no explicit channel tracks prereleases —
+		// this is the rc.5-sees-rc.6 fix.
+		{"", "0.19.0-rc.5", ChannelPrerelease},
+		// Stable build, no request → default.
+		{"", "0.19.0", ChannelDefault},
+		// Explicit request always wins, even on a prerelease build.
+		{"default", "0.19.0-rc.5", ChannelDefault},
+		{"stable", "0.19.0-rc.5", ChannelDefault},
+		{"prerelease", "1.0.0", ChannelPrerelease},
+		// dev builds aren't prereleases.
+		{"", "dev", ChannelDefault},
+	}
+	for _, c := range cases {
+		got, err := EffectiveChannel(c.requested, c.version)
+		if err != nil {
+			t.Errorf("EffectiveChannel(%q, %q) error: %v", c.requested, c.version, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("EffectiveChannel(%q, %q) = %q, want %q", c.requested, c.version, got, c.want)
+		}
+	}
+	if _, err := EffectiveChannel("bogus", "0.19.0-rc.5"); err == nil {
+		t.Error("EffectiveChannel should reject an unknown explicit channel")
+	}
+}
+
 // --- LatestRelease against a stub server ---
 
 func TestLatestReleaseDefault(t *testing.T) {
@@ -370,6 +418,7 @@ func TestNotifyIfBehindSilentInCI(t *testing.T) {
 
 func TestNotifyIfBehindSilentForDevBuilds(t *testing.T) {
 	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "") // tests run under GitHub Actions set this
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	state := &State{LatestSeenVersion: "9.9.9"}
@@ -384,6 +433,7 @@ func TestNotifyIfBehindSilentForDevBuilds(t *testing.T) {
 
 func TestNotifyIfBehindPrintsAdvisoryWhenCacheHasNewer(t *testing.T) {
 	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "") // tests run under GitHub Actions set this
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	_ = SaveState(&State{LatestSeenVersion: "2.0.0"})
@@ -432,6 +482,7 @@ func TestPrintAdvisoryDirectInstall(t *testing.T) {
 
 func TestNotifyIfBehindSilentWhenUpToDate(t *testing.T) {
 	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "") // tests run under GitHub Actions set this
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	_ = SaveState(&State{LatestSeenVersion: "1.0.0"})
@@ -447,6 +498,7 @@ func TestNotifyIfBehindSilentWhenUpToDate(t *testing.T) {
 // refresh is a no-op (R4.12 cadence cap).
 func TestRefreshNotifierStateSkipsRecentChecks(t *testing.T) {
 	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "") // tests run under GitHub Actions set this
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	before := time.Now().Add(-1 * time.Hour)

@@ -384,10 +384,9 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 	ch := update.ChannelDefault
 	autoCheck := true
 	var interval time.Duration
+	requestedChannel := ""
 	if usr, _ := config.LoadUser(); usr != nil && usr.Update != nil {
-		if c, err := update.NormalizeChannel(usr.Update.Channel); err == nil {
-			ch = c
-		}
+		requestedChannel = usr.Update.Channel
 		if usr.Update.AutoCheck != nil {
 			autoCheck = *usr.Update.AutoCheck
 		}
@@ -396,6 +395,11 @@ func runRequiredVersionCheck(cmd *cobra.Command, b BuildInfo) error {
 				interval = d
 			}
 		}
+	}
+	// A prerelease build tracks the prerelease channel by default so rc
+	// users are notified about newer rcs, not just stable releases.
+	if c, err := update.EffectiveChannel(requestedChannel, b.Version); err == nil {
+		ch = c
 	}
 	update.NotifyIfBehind(os.Stderr, b.Version, strattBrewFormula)
 	if autoCheck {
