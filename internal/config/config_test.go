@@ -205,6 +205,28 @@ push = true
 	}
 }
 
+func TestLoadDeploySection(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "stratt.toml", `
+[deploy]
+primary_image = "app"
+commit = true
+`)
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Deploy == nil {
+		t.Fatal("expected Deploy config")
+	}
+	if p.Deploy.PrimaryImage != "app" {
+		t.Errorf("primary_image: got %q", p.Deploy.PrimaryImage)
+	}
+	if p.Deploy.Commit == nil || !*p.Deploy.Commit {
+		t.Errorf("commit: expected true, got %v", p.Deploy.Commit)
+	}
+}
+
 func TestLoadBumpSection(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "stratt.toml", `

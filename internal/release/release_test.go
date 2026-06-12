@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -318,6 +319,102 @@ func TestReleaseInteractiveUserAborts(t *testing.T) {
 	body, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
 	if !strings.Contains(string(body), `version = "1.0.0"`) {
 		t.Errorf("abort should leave file unchanged; got:\n%s", body)
+	}
+}
+
+// TestReleaseConfirmsBeforeChecks — the version confirmation must happen
+// *before* PreReleaseCheck runs, so the user isn't called back to a
+// waiting prompt after a long test suite finishes.
+func TestReleaseConfirmsBeforeChecks(t *testing.T) {
+	dir := setupRepo(t, "1.0.0")
+	confirmedBeforeChecks := false
+	checksRan := false
+	// 'patch' for the verb prompt, then 'y' for the confirmation.
+	stdin := strings.NewReader("patch\ny\n")
+	err := Run(context.Background(), Options{
+		CWD:    dir,
+		Push:   false,
+		Stdin:  stdin,
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+		PreReleaseCheck: func(_ context.Context) error {
+			checksRan = true
+			// stdin is fully consumed (both prompts answered) by the time
+			// checks run — proving the confirmation came first.
+			if _, e := stdin.Read(make([]byte, 1)); errors.Is(e, io.EOF) {
+				confirmedBeforeChecks = true
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("release failed: %v", err)
+	}
+	if !checksRan {
+		t.Fatal("PreReleaseCheck never ran")
+	}
+	if !confirmedBeforeChecks {
+		t.Error("confirmation should be consumed before PreReleaseCheck runs")
+	}
+}
+
+// TestReleasePostReleaseRunsAfterPush — PostRelease fires with the new
+// version once the release has shipped (commit + push both done).
+func TestReleasePostReleaseRunsAfterPush(t *testing.T) {
+	dir := setupRepo(t, "1.0.0")
+	// A bare remote so the push path is exercised end-to-end.
+	remoteDir := t.TempDir()
+	mustRun(t, remoteDir, "git", "init", "--bare", "-q")
+	mustRun(t, dir, "git", "remote", "add", "origin", remoteDir)
+	mustRun(t, dir, "git", "push", "-q", "-u", "origin", "main")
+
+	var got string
+	err := Run(context.Background(), Options{
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      true,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
+		PostRelease: func(_ context.Context, newVersion string) error {
+			got = newVersion
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("release failed: %v", err)
+	}
+	if got != "1.0.1" {
+		t.Errorf("PostRelease got version %q, want 1.0.1", got)
+	}
+}
+
+// TestReleasePostReleaseSkippedWithoutPush — with Push off there's nothing
+// on the remote to deploy, so PostRelease must not fire.
+func TestReleasePostReleaseSkippedWithoutPush(t *testing.T) {
+	dir := setupRepo(t, "1.0.0")
+	called := false
+	err := Run(context.Background(), Options{
+		CWD:       dir,
+		Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+		HasAction: true,
+		CI:        true,
+		Push:      false,
+		Stdin:     strings.NewReader(""),
+		Stdout:    &bytes.Buffer{},
+		Stderr:    &bytes.Buffer{},
+		PostRelease: func(_ context.Context, _ string) error {
+			called = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("release failed: %v", err)
+	}
+	if called {
+		t.Error("PostRelease should not fire when Push is disabled")
 	}
 }
 

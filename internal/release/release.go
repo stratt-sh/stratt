@@ -8,10 +8,14 @@
 //  2. Determine bump Kind: either supplied via Options.Kind (non-
 //     interactive) or prompted (interactive).
 //  3. Confirmation gate for Major releases.
-//  4. Compute plan (dry-run; show file-by-file diff).
-//  5. Final confirmation (skip with AssumeYes or in --ci mode).
+//  4. Compute plan (dry-run; show file-by-file diff) and confirm the
+//     version transition — before the verification suite, so the user
+//     approves the one bump that matters up front and isn't called back
+//     to a still-waiting prompt after the tests finish.
+//  5. Verification suite (PreReleaseCheck: `stratt all` + build check).
 //  6. Apply: write files, stage, commit, tag.
 //  7. Push (default ON per R2.4.5; configurable off).
+//  8. PostRelease hook (optional, e.g. the `release --deploy <env>` chain).
 package release
 
 import (
@@ -90,6 +94,13 @@ type Options struct {
 	// Style colorizes status and success output.  Optional; when nil, Run
 	// installs a no-color style so output renders as plain text.
 	Style *ui.Style
+
+	// PostRelease, if non-nil, runs after the release has fully shipped —
+	// commit, tag, and push all completed successfully — receiving the new
+	// version string.  Used to chain a deploy (`stratt release --deploy
+	// <env>`).  It is only invoked on the push path; with --no-push or
+	// --no-commit there's nothing on the remote to deploy, so it's skipped.
+	PostRelease func(ctx context.Context, newVersion string) error
 }
 
 // Run executes one release per Options.  Returns nil on success, or a
@@ -176,29 +187,11 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
-	// Full verification suite (`stratt all` or equivalent).  Runs before
-	// the bump so that formatters/autofixers have a chance to modify
-	// files; the post-check below catches any unstaged changes.
-	if !opts.SkipChecks && opts.PreReleaseCheck != nil {
-		fmt.Fprint(opts.Stderr, opts.Style.Progress("running pre-release checks"))
-		if err := opts.PreReleaseCheck(ctx); err != nil {
-			return fmt.Errorf("pre-release checks failed: %w", err)
-		}
-		// Re-check clean tree.  If a formatter rewrote files during the
-		// checks, abort so the user can review and commit the changes
-		// before retrying the release.
-		clean, err := repo.IsClean(ctx)
-		if err != nil {
-			return fmt.Errorf("post-check git status: %w", err)
-		}
-		if !clean {
-			return errors.New(
-				"working tree is dirty after pre-release checks " +
-					"(a formatter or autofixer modified files); commit those changes and retry")
-		}
-	}
-
-	// Compute and display plan.
+	// Compute and display the plan, then confirm the version transition —
+	// all *before* the (potentially minutes-long) verification suite.  The
+	// user approves the one bump they care about up front and can walk away;
+	// they don't return to find the terminal still blocked on a prompt that
+	// only appeared once the tests finished.
 	plan, err := bump.ComputeAction(cfg, action, opts.CWD)
 	if err != nil {
 		return fmt.Errorf("computing bump plan: %w", err)
@@ -215,10 +208,35 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
-	// Final confirmation (skipped with --yes or in CI).
+	// Confirmation (skipped with --yes or in CI).
 	if !opts.AssumeYes && !opts.CI {
 		if !confirm(opts, stdin, fmt.Sprintf("\nProceed with bump %s → %s?", plan.OldVersion, plan.NewVersion), true) {
 			return errors.New("aborted by user")
+		}
+	}
+
+	// Full verification suite (`stratt all` or equivalent).  Runs after the
+	// confirmation but before the bump is applied, so that formatters and
+	// autofixers have a chance to modify files; the post-check below catches
+	// any unstaged changes.  The plan computed above stays valid: a clean
+	// tree is required both before and after these checks, so nothing the
+	// checks touch can alter the version-bearing files without aborting here.
+	if !opts.SkipChecks && opts.PreReleaseCheck != nil {
+		fmt.Fprint(opts.Stderr, opts.Style.Progress("running pre-release checks"))
+		if err := opts.PreReleaseCheck(ctx); err != nil {
+			return fmt.Errorf("pre-release checks failed: %w", err)
+		}
+		// Re-check clean tree.  If a formatter rewrote files during the
+		// checks, abort so the user can review and commit the changes
+		// before retrying the release.
+		clean, err := repo.IsClean(ctx)
+		if err != nil {
+			return fmt.Errorf("post-check git status: %w", err)
+		}
+		if !clean {
+			return errors.New(
+				"working tree is dirty after pre-release checks " +
+					"(a formatter or autofixer modified files); commit those changes and retry")
 		}
 	}
 
@@ -271,6 +289,14 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		fmt.Fprintf(opts.Stdout, "\n%s\n", opts.Style.Green(
 			fmt.Sprintf("✓ Released %s — remote is now at %s.", plan.NewVersion, plan.TagName)))
+
+		// Optional follow-up (e.g. `release --deploy <env>`): only reached
+		// once the release has actually shipped to the remote.
+		if opts.PostRelease != nil {
+			if err := opts.PostRelease(ctx, plan.NewVersion); err != nil {
+				return fmt.Errorf("post-release deploy: %w", err)
+			}
+		}
 	} else {
 		fmt.Fprintf(opts.Stdout, "\nLocal release complete (push disabled).  Push manually with:\n  git push %s %s\n",
 			opts.Remote, opts.Branch)

@@ -11,6 +11,7 @@ import (
 	"github.com/stratt-sh/stratt/internal/bump"
 	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/config"
+	"github.com/stratt-sh/stratt/internal/kustomize"
 	"github.com/stratt-sh/stratt/internal/release"
 	"github.com/stratt-sh/stratt/internal/runner"
 )
@@ -30,6 +31,7 @@ func newReleaseCmd() *cobra.Command {
 		noPushFlag     bool
 		noCommitFlag   bool
 		skipChecksFlag bool
+		deployFlag     string
 	)
 	cmd := &cobra.Command{
 		Use:   "release [verb]",
@@ -49,12 +51,19 @@ Starting a prerelease accepts three equivalent spellings:
   stratt release minor,rc            # same
   stratt release minor --pre         # same  (--pre=beta for another label)
 
-Verification runs first — the full ` + "`stratt all`" + ` suite (sync, format, lint,
-test, docs) plus a build check that compiles the project the same way CI
-will (for goreleaser repos, ` + "`goreleaser build --single-target`" + `), so a
-broken build fails here instead of in CI after the tag is pushed.  stratt
-does NOT produce or publish release artifacts — GitHub Actions takes over
-after the tag.
+You confirm the version transition up front, before verification runs — so
+you can start a release and walk away rather than returning to a terminal
+still waiting on a prompt.  After you confirm, the full ` + "`stratt all`" + ` suite
+(sync, format, lint, test, docs) runs, plus a build check that compiles the
+project the same way CI will (for goreleaser repos,
+` + "`goreleaser build --single-target`" + `), so a broken build fails here instead
+of in CI after the tag is pushed.  stratt does NOT produce or publish
+release artifacts — GitHub Actions takes over after the tag.
+
+With ` + "`--deploy <env>`" + `, a successful release is immediately followed by a
+deploy of the new version to that environment (the same flow as
+` + "`stratt deploy <env> <new-version>`" + `): the overlay image tag is bumped,
+committed, and pushed.
 
 Examples:
   stratt release                # interactive: prompt for patch|minor|major
@@ -62,6 +71,7 @@ Examples:
   stratt release --type=minor   # equivalent
   stratt release patch --ci     # CI mode: no prompts, fail on missing decisions
   stratt release patch --no-push  # local only; print the push command
+  stratt release patch --deploy prod  # on success, deploy the new version to prod
 
 Release branch resolution (highest precedence first):
   --branch flag  >  [release] branch in stratt.toml  >  auto-detect (main → master)
@@ -149,6 +159,33 @@ Full documentation: https://stratt.sh/docs/`,
 				}
 			}
 
+			// `--deploy <env>` chains a deploy of the freshly-released
+			// version.  Validate the inputs up front so a typo or an
+			// incompatible flag combination fails before we touch git —
+			// not after a successful release+push leaves us half done.
+			// `--deploy <env>` chains a deploy of the freshly-released
+			// version.  It runs exactly like `stratt deploy <env> <new>`:
+			// same defaults (current branch, origin), same [deploy] config
+			// for the image.  Validate up front so a typo or incompatible
+			// flag fails before we touch git — not after a successful
+			// release+push leaves us half done.
+			var deployImage string
+			if deployFlag != "" {
+				if !push {
+					return fmt.Errorf("--deploy needs the release pushed to the remote; drop --no-push")
+				}
+				if commit != nil && !*commit {
+					return fmt.Errorf("--deploy needs the release committed; drop --no-commit")
+				}
+				overlay := kustomize.OverlayPath(cwd, deployFlag)
+				if _, err := os.Stat(overlay); err != nil {
+					return fmt.Errorf("--deploy %s: no overlay at %s (run `stratt deploy envs` to list environments)", deployFlag, overlay)
+				}
+				if proj != nil && proj.Deploy != nil {
+					deployImage = proj.Deploy.PrimaryImage
+				}
+			}
+
 			opts := release.Options{
 				CWD:        cwd,
 				CI:         ciFlag,
@@ -204,6 +241,25 @@ Full documentation: https://stratt.sh/docs/`,
 			opts.Action = action
 			opts.HasAction = hasAction
 
+			if deployFlag != "" {
+				opts.PostRelease = func(ctx context.Context, newVersion string) error {
+					fmt.Fprintf(cmd.OutOrStdout(), "\n→ deploying %s to %s\n", newVersion, deployFlag)
+					return runDeploy(ctx, deployRequest{
+						cwd:       cwd,
+						env:       deployFlag,
+						version:   newVersion,
+						image:     deployImage,
+						commit:    true,
+						push:      true,
+						assumeYes: yesFlag || ciFlag,
+						remote:    "", // plain deploy defaults: origin
+						branch:    "", // plain deploy defaults: current branch
+						stdout:    cmd.OutOrStdout(),
+						stdin:     cmd.InOrStdin(),
+					})
+				}
+			}
+
 			if err := release.Run(cmd.Context(), opts); err != nil {
 				// Surface bump-config errors with extra context about the
 				// chain so users know what to add.
@@ -225,5 +281,6 @@ Full documentation: https://stratt.sh/docs/`,
 	cmd.Flags().BoolVar(&noPushFlag, "no-push", false, "do not push commit/tag to remote (default is to push)")
 	cmd.Flags().BoolVar(&noCommitFlag, "no-commit", false, "write the version bump but do not commit, tag, or push (review-then-merge flow)")
 	cmd.Flags().BoolVar(&skipChecksFlag, "skip-checks", false, "skip the `stratt all` pre-release verification (emergency use only)")
+	cmd.Flags().StringVar(&deployFlag, "deploy", "", "after a successful release, deploy the new version to this environment (e.g. --deploy prod)")
 	return cmd
 }

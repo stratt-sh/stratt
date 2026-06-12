@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -48,10 +49,6 @@ Examples:
 			if err != nil {
 				return err
 			}
-			overlay := kustomize.OverlayPath(cwd, env)
-			if _, err := os.Stat(overlay); err != nil {
-				return fmt.Errorf("no overlay at %s (run `stratt deploy envs` to list available environments)", overlay)
-			}
 
 			proj, _ := config.Load(cwd)
 			usr, _ := config.LoadUser()
@@ -62,82 +59,19 @@ Examples:
 				effectiveImage = proj.Deploy.PrimaryImage
 			}
 
-			ctx := cmd.Context()
-			repo := git.New(cwd)
-
-			// Clean-tree check protects the deploy commit from picking
-			// up unrelated edits.  Skipped when committing is disabled.
-			if doCommit {
-				clean, err := repo.IsClean(ctx)
-				if err != nil {
-					return fmt.Errorf("checking working tree: %w", err)
-				}
-				if !clean {
-					return fmt.Errorf("working tree is not clean (commit or stash your changes before deploying, or pass --no-commit to edit only)")
-				}
-			}
-
-			change, err := kustomize.SetImage(overlay, effectiveImage, version)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(),
-				"updated %s\n  %s: %s → %s\n",
-				relTo(cwd, overlay), change.Image, displayTag(change.OldTag), change.NewTag)
-
-			overlayRel := relTo(cwd, overlay)
-			if !doCommit {
-				fmt.Fprintf(cmd.OutOrStdout(),
-					"\nEdit-only mode (commit disabled).  To commit & push later:\n"+
-						"  git add %s\n  git commit -m %q\n  git push origin %s\n",
-					overlayRel,
-					firstLine(defaultDeployMessage(env, overlayRel, change)),
-					defaultDeployBranch(branchFlag))
-				return nil
-			}
-
-			if !yes {
-				if !confirmCommit(cmd.OutOrStdout(), cmd.InOrStdin()) {
-					fmt.Fprintln(cmd.OutOrStdout(),
-						"Skipping git; file change remains in working tree.")
-					return nil
-				}
-			}
-
-			if err := repo.Add(ctx, overlay); err != nil {
-				return err
-			}
-			msg := defaultDeployMessage(env, overlayRel, change)
-			if err := repo.Commit(ctx, msg); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "✓ committed: %s\n", firstLine(msg))
-
-			// Push unless explicitly disabled.
-			if !doPush {
-				fmt.Fprintf(cmd.OutOrStdout(),
-					"\nNot pushed (push disabled).  When ready:\n  git push %s %s\n",
-					orDefault(remoteFlag, "origin"),
-					defaultDeployBranch(branchFlag))
-				return nil
-			}
-			branch := branchFlag
-			if branch == "" {
-				detected, err := repo.Branch(ctx)
-				if err != nil {
-					return fmt.Errorf("detecting current branch: %w", err)
-				}
-				branch = detected
-			}
-			remote := orDefault(remoteFlag, "origin")
-			fmt.Fprintf(cmd.OutOrStdout(), "→ pushing to %s/%s\n", remote, branch)
-			if err := repo.PushBranch(ctx, remote, branch); err != nil {
-				return fmt.Errorf("push: %w", err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "✓ pushed to %s/%s\n", remote, branch)
-			fmt.Fprintf(cmd.OutOrStdout(), "\n✓ Deployed %s %s to %s.\n",
-				change.Image, change.NewTag, env)
-			return nil
+			return runDeploy(cmd.Context(), deployRequest{
+				cwd:       cwd,
+				env:       env,
+				version:   version,
+				image:     effectiveImage,
+				commit:    doCommit,
+				push:      doPush,
+				assumeYes: yes,
+				remote:    remoteFlag,
+				branch:    branchFlag,
+				stdout:    cmd.OutOrStdout(),
+				stdin:     cmd.InOrStdin(),
+			})
 		},
 	}
 	cmd.Flags().StringVar(&imageName, "image", "", "specific image name to update (required if the overlay has multiple images)")
@@ -189,6 +123,110 @@ func resolveDeployCommitPush(cmd *cobra.Command, noCommitFlag, noPushFlag bool, 
 		push = false
 	}
 	return commit, push
+}
+
+// deployRequest carries the fully-resolved inputs for one deploy.  It is
+// the shared contract between `stratt deploy` (which fills it from CLI
+// flags + config) and `stratt release --deploy <env>` (which chains a
+// deploy of the freshly-released version).
+type deployRequest struct {
+	cwd       string
+	env       string
+	version   string
+	image     string // resolved image name; "" lets kustomize pick the sole image
+	commit    bool
+	push      bool
+	assumeYes bool
+	remote    string
+	branch    string
+	stdout    io.Writer
+	stdin     io.Reader
+}
+
+// runDeploy edits deploy/overlays/<env>/kustomization.yaml to point at
+// version, then (per the request) commits and pushes.  It is the engine
+// behind both the `deploy` command and the `release --deploy` follow-up.
+func runDeploy(ctx context.Context, req deployRequest) error {
+	overlay := kustomize.OverlayPath(req.cwd, req.env)
+	if _, err := os.Stat(overlay); err != nil {
+		return fmt.Errorf("no overlay at %s (run `stratt deploy envs` to list available environments)", overlay)
+	}
+
+	repo := git.New(req.cwd)
+
+	// Clean-tree check protects the deploy commit from picking up
+	// unrelated edits.  Skipped when committing is disabled.
+	if req.commit {
+		clean, err := repo.IsClean(ctx)
+		if err != nil {
+			return fmt.Errorf("checking working tree: %w", err)
+		}
+		if !clean {
+			return fmt.Errorf("working tree is not clean (commit or stash your changes before deploying, or pass --no-commit to edit only)")
+		}
+	}
+
+	change, err := kustomize.SetImage(overlay, req.image, req.version)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(req.stdout,
+		"updated %s\n  %s: %s → %s\n",
+		relTo(req.cwd, overlay), change.Image, displayTag(change.OldTag), change.NewTag)
+
+	overlayRel := relTo(req.cwd, overlay)
+	if !req.commit {
+		fmt.Fprintf(req.stdout,
+			"\nEdit-only mode (commit disabled).  To commit & push later:\n"+
+				"  git add %s\n  git commit -m %q\n  git push origin %s\n",
+			overlayRel,
+			firstLine(defaultDeployMessage(req.env, overlayRel, change)),
+			defaultDeployBranch(req.branch))
+		return nil
+	}
+
+	if !req.assumeYes {
+		if !confirmCommit(req.stdout, req.stdin) {
+			fmt.Fprintln(req.stdout,
+				"Skipping git; file change remains in working tree.")
+			return nil
+		}
+	}
+
+	if err := repo.Add(ctx, overlay); err != nil {
+		return err
+	}
+	msg := defaultDeployMessage(req.env, overlayRel, change)
+	if err := repo.Commit(ctx, msg); err != nil {
+		return err
+	}
+	fmt.Fprintf(req.stdout, "✓ committed: %s\n", firstLine(msg))
+
+	// Push unless explicitly disabled.
+	if !req.push {
+		fmt.Fprintf(req.stdout,
+			"\nNot pushed (push disabled).  When ready:\n  git push %s %s\n",
+			orDefault(req.remote, "origin"),
+			defaultDeployBranch(req.branch))
+		return nil
+	}
+	branch := req.branch
+	if branch == "" {
+		detected, err := repo.Branch(ctx)
+		if err != nil {
+			return fmt.Errorf("detecting current branch: %w", err)
+		}
+		branch = detected
+	}
+	remote := orDefault(req.remote, "origin")
+	fmt.Fprintf(req.stdout, "→ pushing to %s/%s\n", remote, branch)
+	if err := repo.PushBranch(ctx, remote, branch); err != nil {
+		return fmt.Errorf("push: %w", err)
+	}
+	fmt.Fprintf(req.stdout, "✓ pushed to %s/%s\n", remote, branch)
+	fmt.Fprintf(req.stdout, "\n✓ Deployed %s %s to %s.\n",
+		change.Image, change.NewTag, req.env)
+	return nil
 }
 
 // defaultDeployMessage returns the commit message stratt uses for an
