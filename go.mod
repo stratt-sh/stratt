@@ -3,7 +3,7 @@ module github.com/stratt-sh/stratt
 go 1.25.5
 
 require (
-	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/pelletier/go-toml/v2 v2.4.0
 	github.com/sigstore/sigstore-go v1.2.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.37.0
