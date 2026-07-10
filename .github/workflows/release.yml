@@ -19,6 +19,7 @@ permissions:
   contents: write       # create the GitHub Release
   id-token: write       # OIDC for sigstore keyless signing
   attestations: write   # publish GitHub artifact attestations
+  actions: write        # dispatch the post-release smoke workflow
 
 # Opt in to Node 24 for JS actions ahead of the June 2026 default switch.
 env:
@@ -80,3 +81,14 @@ jobs:
         run: |
           echo "::error::build-provenance attestation failed after retry; the release is published but unattested — cut a new tag to re-run" >&2
           exit 1
+
+      # Kick the post-release smoke test explicitly.  GoReleaser publishes
+      # the release with GITHUB_TOKEN, and events created with that token
+      # don't trigger other workflows (GitHub's recursion guard), so
+      # smoke.yml's `release: published` trigger never fires on its own.
+      # workflow_dispatch is exempt from the guard; pass the tag so smoke
+      # tests THIS release (its latest-release fallback excludes rc tags).
+      - name: Trigger smoke test
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run smoke.yml -f tag="$GITHUB_REF_NAME"

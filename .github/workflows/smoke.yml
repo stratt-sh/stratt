@@ -9,8 +9,13 @@
 # instead of waiting for a user to hit it.
 #
 # Triggers:
-#   - release: published  → runs automatically after GoReleaser publishes
-#   - workflow_dispatch    → run by hand against the latest tag anytime
+#   - workflow_dispatch  → dispatched by release.yml after GoReleaser
+#                          publishes (with the tag as input), or run by
+#                          hand (empty tag = latest stable release)
+#   - release: published → only fires for releases published outside the
+#                          release workflow; GoReleaser's own publishes
+#                          use GITHUB_TOKEN, whose events don't trigger
+#                          workflows (recursion guard)
 #
 # Platform split, by necessity:
 #   - macOS  → Homebrew cask (the cask is macOS-only; `brew install
@@ -28,34 +33,49 @@
 
 name: smoke
 
+# NOTE on triggers: GoReleaser publishes the release with the workflow's
+# GITHUB_TOKEN, and events created with that token don't trigger other
+# workflows (GitHub's recursion guard) — so `release: published` never
+# fires for our own releases.  release.yml therefore dispatches this
+# workflow explicitly, passing the tag.  The release trigger stays for
+# releases published by other means (e.g. by hand in the UI).
 on:
   release:
     types: [published]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (e.g. v1.2.3); empty = latest stable"
+        required: false
+        type: string
 
 jobs:
   brew-cask:
     name: brew install (macOS)
     # The cask only tracks non-prerelease releases (skip_upload: auto),
-    # so skip this job for prerelease events — the cask won't have moved.
-    # Manual dispatch still runs it against the current cask.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
+    # so skip this job for prerelease tags (vX.Y.Z-rc.N) — the cask won't
+    # have moved.  An empty-tag manual dispatch tests the current cask.
+    if: ${{ !contains(inputs.tag || github.event.release.tag_name || '', '-') }}
     runs-on: macos-latest
     steps:
       - name: Resolve the version under test
         id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          # release event → the tag; manual dispatch → latest published tag.
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            tag="${{ github.event.release.tag_name }}"
+          # dispatch input → release event tag → latest published tag.
+          if [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          elif [ -n "$RELEASE_TAG" ]; then
+            tag="$RELEASE_TAG"
           else
             tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "Testing $tag (version ${tag#v})"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the published cask (wait for the tap to land)
         env:
@@ -115,17 +135,22 @@ jobs:
     steps:
       - name: Resolve the version under test
         id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            tag="${{ github.event.release.tag_name }}"
+          # dispatch input → release event tag → latest published tag.
+          if [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          elif [ -n "$RELEASE_TAG" ]; then
+            tag="$RELEASE_TAG"
           else
             tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "Testing $tag (version ${tag#v})"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download and extract the linux amd64 archive
         run: |
