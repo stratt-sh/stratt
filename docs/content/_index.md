@@ -11,10 +11,6 @@ toc: false
 
 Named for **Eva Stratt**, Project Director of the Petrova Taskforce in Andy Weir's *Project Hail Mary*.
 
-{{< callout type="warning" >}}
-**Pre-alpha.** Stratt is in active early development. Expect breaking changes until v1.0.
-{{< /callout >}}
-
 ## The idea
 
 Every repo needs the same handful of commands — *build, test, lint, format, release, deploy* — but each language and toolchain spells them differently. Make targets capture the variance per-repo, but every repo's Makefile becomes its own dialect.
