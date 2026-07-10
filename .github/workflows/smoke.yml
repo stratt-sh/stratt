@@ -121,6 +121,11 @@ jobs:
             || { echo "::error::stratt did not detect a Homebrew install (self update would clobber a brew-managed binary)"; exit 1; }
 
       - name: Assert self update routes to brew rather than self-overwriting
+        env:
+          # stratt's update check authenticates with GH_TOKEN when set;
+          # unauthenticated calls exhaust GitHub's per-IP rate limit on
+          # shared runner IPs (the v0.19.0 smoke failure).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # In --ci mode the brew path prints the brew command (or
           # "up to date") and exits 0 without ever touching the binary.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +16,12 @@ import (
 )
 
 // newGitHubRequest builds a GET request with the standard GitHub API
-// headers.  Requests go out unauthenticated (subject to GitHub's
-// 60-request-per-hour-per-IP limit); a real user's update check makes
-// only a couple of calls, so that ceiling is effectively never reached
-// outside shared/NAT'd networks.
+// headers.  Requests authenticate with GH_TOKEN/GITHUB_TOKEN when set
+// (the gh CLI convention, GH_TOKEN winning) — without a token, GitHub's
+// 60-request-per-hour-per-IP limit applies, which a real user's couple
+// of calls never reaches but shared/NAT'd networks (notably GitHub-
+// hosted CI runners, where the release smoke test runs) exhaust
+// constantly.
 func newGitHubRequest(ctx context.Context, url string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -26,7 +29,19 @@ func newGitHubRequest(ctx context.Context, url string) (*http.Request, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if token := githubToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	return req, nil
+}
+
+// githubToken returns the GitHub API token from the environment, using
+// the gh CLI's precedence: GH_TOKEN over GITHUB_TOKEN, empty when unset.
+func githubToken() string {
+	if t := os.Getenv("GH_TOKEN"); t != "" {
+		return t
+	}
+	return os.Getenv("GITHUB_TOKEN")
 }
 
 // apiError converts a non-success GitHub API response into an error,
