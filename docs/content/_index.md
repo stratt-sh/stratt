@@ -42,11 +42,24 @@ Two Go projects in your fleet can have completely different release flows (one b
 ## Install
 
 {{< tabs >}}
+{{< tab name="Install script" >}}
+```sh
+curl -fsSL https://stratt.sh/install.sh | sh
+```
+
+macOS + Linux (amd64/arm64). Verifies the release checksum — and the Sigstore
+build attestation when the `gh` CLI is on PATH — before installing to
+`~/.local/bin` (root: `/usr/local/bin`; `--dir` overrides).
+{{< /tab >}}
 {{< tab name="Homebrew" >}}
 ```sh
 brew tap stratt-sh/tap
+brew trust stratt-sh/tap   # Homebrew 6+: third-party taps must be trusted
 brew install stratt
 ```
+
+Without `brew trust`, Homebrew 6 refuses the install and silently skips
+stratt during `brew upgrade`.
 {{< /tab >}}
 {{< tab name="Direct download" >}}
 Grab a binary for your platform from the [releases page](https://github.com/stratt-sh/stratt/releases),

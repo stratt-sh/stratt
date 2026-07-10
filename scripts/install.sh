@@ -6,6 +6,7 @@
 #   curl -fsSL https://stratt.sh/install.sh | sh
 #   curl -fsSL https://stratt.sh/install.sh | sh -s -- --version v1.14.1
 #   curl -fsSL https://stratt.sh/install.sh | sh -s -- --dir /usr/local/bin
+#   curl -fsSL https://stratt.sh/install.sh | sh -s -- --keep-brew
 #
 # Env:
 #   STRATT_VERSION   pinned version tag (e.g. v1.14.1).  Defaults to the
@@ -14,6 +15,12 @@
 #                    install directory.  Defaults to $HOME/.local/bin
 #                    (or /usr/local/bin when running as root).
 #   STRATT_REPO      override the upstream repo (default stratt-sh/stratt).
+#   STRATT_KEEP_BREW
+#                    set to 1 to keep an existing Homebrew-managed stratt
+#                    (same as --keep-brew).  By default the script removes
+#                    it after a successful install: a brew copy usually
+#                    shadows this install on $PATH, and Homebrew 6
+#                    silently skips untrusted taps on upgrade.
 #
 # Verifies the SHA256 checksum against the release's checksums.txt.
 # If the `gh` CLI is available, additionally verifies the Sigstore
@@ -28,6 +35,7 @@ VERSION="${STRATT_VERSION:-}"
 INSTALL_DIR="${STRATT_INSTALL_DIR:-}"
 SKIP_ATTESTATION="${STRATT_SKIP_ATTESTATION:-}"
 REQUIRE_ATTESTATION=
+KEEP_BREW="${STRATT_KEEP_BREW:-}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -39,6 +47,7 @@ while [ $# -gt 0 ]; do
         --repo=*)   REPO="${1#*=}"; shift ;;
         --skip-attestation) SKIP_ATTESTATION=1; shift ;;
         --require-attestation) REQUIRE_ATTESTATION=1; shift ;;
+        --keep-brew) KEEP_BREW=1; shift ;;
         -h|--help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -190,3 +199,42 @@ case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *) echo "  note: ${INSTALL_DIR} is not on \$PATH" ;;
 esac
+
+# Remove a Homebrew-managed install, if one exists.  Running this script
+# is an explicit choice of the direct-install path, and a leftover brew
+# cask keeps a stale stratt on $PATH — usually AHEAD of the install dir,
+# shadowing the copy just installed.  Homebrew 6 also silently skips
+# untrusted taps during `brew upgrade`, so the brew copy never updates.
+# --keep-brew opts out.  Detection is filesystem-based (Caskroom dir): on
+# machines with an untrusted tap, `brew list --cask stratt` refuses to
+# load the cask and would miss exactly the installs that most need
+# migrating.
+brew_caskroom=
+for prefix in /opt/homebrew /usr/local /home/linuxbrew/.linuxbrew; do
+    if [ -d "${prefix}/Caskroom/stratt" ]; then
+        brew_caskroom="${prefix}/Caskroom/stratt"
+        break
+    fi
+done
+if [ -z "$brew_caskroom" ] && command -v brew >/dev/null 2>&1; then
+    prefix=$(brew --prefix 2>/dev/null || true)
+    if [ -n "$prefix" ] && [ -d "${prefix}/Caskroom/stratt" ]; then
+        brew_caskroom="${prefix}/Caskroom/stratt"
+    fi
+fi
+
+if [ -n "$brew_caskroom" ]; then
+    if [ -n "$KEEP_BREW" ]; then
+        echo "  note: keeping the Homebrew-managed stratt at ${brew_caskroom} (--keep-brew);"
+        echo "        it may shadow ${INSTALL_DIR}/stratt depending on \$PATH order."
+    else
+        echo "→ removing Homebrew-managed stratt (pass --keep-brew to keep it)"
+        if brew uninstall --cask stratt; then
+            echo "  ✓ removed (the tap remains; drop it with: brew untap stratt-sh/tap)"
+        else
+            echo "  brew uninstall failed — the old copy may shadow ${INSTALL_DIR}/stratt." >&2
+            echo "  Remove it manually with:" >&2
+            echo "    brew trust stratt-sh/tap && brew uninstall --cask stratt" >&2
+        fi
+    fi
+fi

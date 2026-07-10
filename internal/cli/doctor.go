@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stratt-sh/stratt/internal/config"
 	"github.com/stratt-sh/stratt/internal/runner"
 	"github.com/stratt-sh/stratt/internal/ui"
+	"github.com/stratt-sh/stratt/internal/update"
 )
 
 // renderCommandRow returns the rendered "→ ..." cell and the trailing
@@ -213,6 +215,46 @@ func printConfigStatus(out interface{ Write([]byte) (int, error) }, st *ui.Style
 	}
 }
 
+// printSelfInstall renders doctor's self-install health lines under the
+// binary metadata header: install method, Homebrew tap-trust status, and
+// a staleness flag.  Staleness comes from the notifier's cached state
+// (no network); the trust check reads brew's trust registry, catching
+// the Homebrew 6 failure mode where `brew upgrade` silently skips an
+// untrusted tap and the install quietly stops receiving updates.
+func printSelfInstall(out io.Writer, st *ui.Style, b BuildInfo) {
+	kind, _ := update.DetectInstall()
+	fmt.Fprintf(out, "install : %s\n", kind)
+
+	stale := false
+	if state, err := update.LoadState(); err == nil &&
+		state.LatestSeenVersion != "" && update.IsNewer(state.LatestSeenVersion, b.Version) {
+		stale = true
+		remedy := "stratt self update"
+		if kind == update.InstallHomebrew {
+			remedy = "brew upgrade " + strattBrewFormula
+		}
+		fmt.Fprintf(out, "  %s stratt %s is available (you have %s) — run `%s`\n",
+			st.Yellow("⚠"), state.LatestSeenVersion, b.Version, remedy)
+	}
+
+	if kind != update.InstallHomebrew {
+		return
+	}
+	switch update.CheckBrewTapTrust(brewTapOf(strattBrewFormula), strattBrewFormula) {
+	case update.BrewTrustUntrusted:
+		fmt.Fprintf(out, "  %s the %s tap is not trusted — Homebrew 6 refuses installs from it and\n",
+			st.Yellow("⚠"), brewTapOf(strattBrewFormula))
+		fmt.Fprintln(out, "    silently skips it during `brew upgrade`, so this install won't receive updates.")
+		fmt.Fprintf(out, "    Fix: brew trust %s\n", brewTapOf(strattBrewFormula))
+	case update.BrewTrustTrusted:
+		if stale {
+			// Stale but trusted: upgrades work, just haven't been run.
+			fmt.Fprintf(out, "  %s tap %s is trusted — `brew upgrade` will work\n",
+				st.Green("✓"), brewTapOf(strattBrewFormula))
+		}
+	}
+}
+
 func newDoctorCmd(b BuildInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:     "doctor",
@@ -230,6 +272,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 			fmt.Fprintf(out, "version : %s\n", b.Version)
 			fmt.Fprintf(out, "commit  : %s\n", b.Commit)
 			fmt.Fprintf(out, "built   : %s\n", b.Date)
+			printSelfInstall(out, st, b)
 			fmt.Fprintln(out)
 
 			// Project config health check.  Doctor is exempt from the

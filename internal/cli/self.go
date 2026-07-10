@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -171,20 +173,49 @@ func runBrewSelfUpdate(cmd *cobra.Command, b BuildInfo, channel string, yes, ciF
 	}
 
 	// Exec brew with stdio passthrough so the user sees its output live.
+	// Output is additionally captured so Homebrew's tap-trust refusal
+	// (Homebrew 6+) can be recognized and the remedy printed.
 	fmt.Fprintf(out, "→ %s\n", brewCmd)
 	bin, err := exec.LookPath("brew")
 	if err != nil {
 		return fmt.Errorf("brew not found on PATH (which is surprising on a brew-managed install): %w", err)
 	}
+	var brewOutput bytes.Buffer
 	exe := exec.CommandContext(ctx, bin, "upgrade", strattBrewFormula)
 	exe.Stdin = cmd.InOrStdin()
-	exe.Stdout = out
-	exe.Stderr = cmd.ErrOrStderr()
+	exe.Stdout = io.MultiWriter(out, &brewOutput)
+	exe.Stderr = io.MultiWriter(cmd.ErrOrStderr(), &brewOutput)
 	if err := exe.Run(); err != nil {
+		if isUntrustedTapError(brewOutput.String()) {
+			if tap := brewTapOf(strattBrewFormula); tap != "" {
+				fmt.Fprintf(out,
+					"\nHomebrew refused the upgrade because the %s tap isn't trusted\n"+
+						"(Homebrew 6 requires third-party taps to be trusted once). Fix with:\n\n"+
+						"  brew trust %s\n  stratt self update\n\n", tap, tap)
+			}
+		}
 		return fmt.Errorf("brew upgrade failed: %w", err)
 	}
 	fmt.Fprintf(out, "\n✓ Upgraded via Homebrew.\n")
 	return nil
+}
+
+// brewTapOf returns the "owner/repo" tap portion of a fully-qualified
+// formula name ("owner/repo/name"), or "" when the name isn't qualified.
+func brewTapOf(formula string) string {
+	if i := strings.LastIndex(formula, "/"); i > 0 {
+		return formula[:i]
+	}
+	return ""
+}
+
+// isUntrustedTapError reports whether brew output indicates Homebrew's
+// tap-trust gate refused the operation.  Homebrew 6+ refuses to load
+// formulae/casks from untrusted third-party taps ("Error: Refusing to
+// load cask ... from untrusted tap ...") and suggests `brew trust`.
+func isUntrustedTapError(output string) bool {
+	s := strings.ToLower(output)
+	return strings.Contains(s, "untrusted tap") || strings.Contains(s, "brew trust")
 }
 
 func newSelfRollbackCmd(b BuildInfo) *cobra.Command {

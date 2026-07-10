@@ -15,21 +15,34 @@ Full documentation lives at **[stratt.sh](https://stratt.sh)**.
 Linux and macOS are supported (Windows via WSL).
 
 ```sh
+curl -fsSL https://stratt.sh/install.sh | sh
+```
+
+The script verifies the release checksum — and, when the `gh` CLI is on PATH, the Sigstore build attestation — before installing to `~/.local/bin` (or `/usr/local/bin` as root; `--dir` overrides).
+
+Or via Homebrew:
+
+```sh
 brew tap stratt-sh/tap
+brew trust stratt-sh/tap   # Homebrew 6+: third-party taps must be trusted
 brew install stratt
 ```
+
+Without the `brew trust` step, Homebrew 6 refuses to install the cask — and silently skips it during `brew upgrade`.
+
+Migrating from a brew install to the script? Just run the script — it removes the old cask after installing.
 
 Or grab a binary from the [releases page](https://github.com/stratt-sh/stratt/releases).
 
 ### macOS first-run note
 
-Stratt binaries are not yet notarized. On first run from a direct download, Gatekeeper will quarantine the binary. Clear it with:
+Stratt binaries are not yet notarized. A binary downloaded with a *browser* gets quarantined by Gatekeeper on first run. Clear it with:
 
 ```sh
 xattr -d com.apple.quarantine /path/to/stratt
 ```
 
-(Or right-click → Open the first time, then close.) Homebrew installations are unaffected.
+(Or right-click → Open the first time, then close.) The install script and Homebrew installs are unaffected — curl doesn't set the quarantine attribute, and the cask strips it on install.
 
 ## Quickstart
 

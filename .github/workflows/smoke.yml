@@ -67,6 +67,10 @@ jobs:
           # version, then install — bounded wait, no fixed-sleep guess,
           # and no race. Fails loudly only if the tap never publishes.
           brew tap stratt-sh/tap
+          # Homebrew 6 refuses formulae/casks from untrusted third-party
+          # taps; trust ours. Guarded so older brew (no `trust` command)
+          # keeps working.
+          brew trust stratt-sh/tap 2>/dev/null || true
           for attempt in $(seq 1 18); do   # up to ~3 min (18 × 10s)
             brew update >/dev/null 2>&1 || true
             if brew info --cask stratt-sh/tap/stratt 2>/dev/null | head -1 | grep -qF "$WANT"; then

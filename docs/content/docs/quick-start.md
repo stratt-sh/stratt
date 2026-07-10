@@ -8,17 +8,24 @@ Five minutes from install to your first release.
 
 ## 1. Install
 
-```sh
-brew tap stratt-sh/tap
-brew install stratt
-stratt version
-```
-
-If you don't have Homebrew, use the install script (POSIX shells, macOS + Linux):
+The install script works on macOS and Linux (amd64/arm64), verifies the release checksum — plus the Sigstore build attestation when the `gh` CLI is available — and installs to `~/.local/bin` (root: `/usr/local/bin`; `--dir` overrides):
 
 ```sh
 curl -fsSL https://stratt.sh/install.sh | sh
+stratt version
 ```
+
+Or via Homebrew:
+
+```sh
+brew tap stratt-sh/tap
+brew trust stratt-sh/tap   # Homebrew 6+: third-party taps must be trusted
+brew install stratt
+```
+
+The `brew trust` step matters: without it, Homebrew 6 refuses the install and silently skips stratt during `brew upgrade`, leaving you frozen on an old version.
+
+Switching from a brew install to the script? Just run the script — it removes the old brew cask after installing.
 
 Or grab a binary directly from the [releases page](https://github.com/stratt-sh/stratt/releases). For CI/CD usage see [Using stratt in CI](/docs/ci).
 
