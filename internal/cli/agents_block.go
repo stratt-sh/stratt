@@ -22,12 +22,17 @@ const (
 	agentsBeginMarker = "<!-- BEGIN stratt (managed — run `stratt agents sync`, do not edit) -->"
 	agentsEndMarker   = "<!-- END stratt -->"
 
-	agentsBlockBody = "This project uses **stratt**: one set of commands — build, test, lint,\n" +
-		"release, deploy — that work the same whatever the repo's language. Stratt\n" +
-		"detects the toolchain and dispatches, replacing the per-repo Makefile.\n" +
+	agentsBlockBody = "This project uses **stratt** as its task runner. Always prefer stratt\n" +
+		"verbs over the underlying tools — `stratt test`, not `go test`/`pytest`;\n" +
+		"`stratt build`, not `make`/`cargo build` — stratt detects the toolchain\n" +
+		"and dispatches, so behavior matches CI and every other repo here.\n" +
 		"\n" +
-		"Run `stratt agents context` for how to use stratt in this project — the resolved\n" +
-		"command map, flags, and conventions. Additional docs: https://stratt.sh"
+		"Verbs: `build` · `test` · `lint` · `format` · `style` · `all` (full\n" +
+		"verification suite) · `run <task>` (custom tasks) · `release patch|minor|major`.\n" +
+		"Non-interactive: `--ci` (no prompts, fail loudly) and `-y` (auto-confirm).\n" +
+		"\n" +
+		"Before your first stratt command, run `stratt agents context` — it prints\n" +
+		"this repo's resolved command map and conventions. Docs: https://stratt.sh"
 )
 
 // managedBlock returns the full block, markers included.
