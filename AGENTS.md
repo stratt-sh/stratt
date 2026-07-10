@@ -1,8 +1,13 @@
 <!-- BEGIN stratt (managed — run `stratt agents sync`, do not edit) -->
-This project uses **stratt**, an opinionated replacement for `make` that
-abstracts common SDLC tasks (build, test, lint, release, deploy) into one set
-of commands that work the same regardless of the project's language or platform.
+This project uses **stratt** as its task runner. Always prefer stratt
+verbs over the underlying tools — `stratt test`, not `go test`/`pytest`;
+`stratt build`, not `make`/`cargo build` — stratt detects the toolchain
+and dispatches, so behavior matches CI and every other repo here.
 
-Run `stratt agents context` for how to use stratt in this project — the resolved
-command map, flags, and conventions. Additional docs: https://stratt.sh
+Verbs: `build` · `test` · `lint` · `format` · `style` · `all` (full
+verification suite) · `run <task>` (custom tasks) · `release patch|minor|major`.
+Non-interactive: `--ci` (no prompts, fail loudly) and `-y` (auto-confirm).
+
+Before your first stratt command, run `stratt agents context` — it prints
+this repo's resolved command map and conventions. Docs: https://stratt.sh
 <!-- END stratt -->
