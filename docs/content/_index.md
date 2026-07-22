@@ -7,15 +7,9 @@ toc: false
 
 > One set of commands for every repo, whatever language it's in.
 
-`build`, `test`, `lint`, `release`, `deploy` — the same commands in a Go repo, a Python repo, or a PHP one. Stratt detects the toolchain and dispatches; you don't think about it.
+Every repo needs the same handful of commands — *build, test, lint, format, release, deploy* — but each language and toolchain spells them differently. Make targets can paper over that per-repo, but then every Makefile becomes its own dialect. Stratt collapses it all to one vocabulary: detect the toolchain, dispatch to it, and keep the differences between stacks out of your way.
 
 Named for **Eva Stratt**, Project Director of the Petrova Taskforce in Andy Weir's *Project Hail Mary*.
-
-## The idea
-
-Every repo needs the same handful of commands — *build, test, lint, format, release, deploy* — but each language and toolchain spells them differently. Make targets capture the variance per-repo, but every repo's Makefile becomes its own dialect.
-
-Stratt collapses that to one vocabulary. The differences between toolchains live in stratt's detection layer; they're invisible to the user.
 
 ```sh
 $ stratt test              # uv run pytest, or go test ./..., or composer test —
@@ -25,16 +19,6 @@ $ stratt deploy prod 1.14.1   # bump Kustomize image tags
 $ stratt doctor            # show exactly what each command will dispatch to
 ```
 
-Two Go projects in your fleet can have completely different release flows (one bump-my-version-driven, one goreleaser-driven) — same `stratt release` command for both. Stratt detects the right engine and dispatches.
-
-## Highlights
-
-- **One vocabulary, every stack.** Go, Python+UV, Node+npm, PHP, Docker, Kustomize, MkDocs, Sphinx, Hugo, GitHub Actions, and Ansible (collections, roles, playbooks). Multi-stack repos are normal.
-- **Zero config when possible.** Detection drives behavior. `stratt.toml` is optional.
-- **Single static binary.** No Python or Node runtime required to use stratt itself.
-- **Secure self-update.** Sigstore artifact attestations verified on every update. Homebrew users get an automatic dispatch to `brew upgrade`.
-- **Composable tasks.** Built-in commands and your own custom tasks share one namespace. Override or augment any built-in.
-
 ## Install
 
 {{< tabs >}}
@@ -42,10 +26,6 @@ Two Go projects in your fleet can have completely different release flows (one b
 ```sh
 curl -fsSL https://stratt.sh/install.sh | sh
 ```
-
-macOS + Linux (amd64/arm64). Verifies the release checksum — and the Sigstore
-build attestation when the `gh` CLI is on PATH — before installing to
-`~/.local/bin` (root: `/usr/local/bin`; `--dir` overrides).
 {{< /tab >}}
 {{< tab name="Homebrew" >}}
 ```sh
@@ -53,15 +33,12 @@ brew tap stratt-sh/tap
 brew trust stratt-sh/tap   # Homebrew 6+: third-party taps must be trusted
 brew install stratt
 ```
-
-Without `brew trust`, Homebrew 6 refuses the install and silently skips
-stratt during `brew upgrade`.
 {{< /tab >}}
 {{< tab name="Direct download" >}}
-Grab a binary for your platform from the [releases page](https://github.com/stratt-sh/stratt/releases),
-extract it, and put `stratt` somewhere on your `$PATH`.
+Grab a binary from the [releases page](https://github.com/stratt-sh/stratt/releases)
+and put `stratt` on your `$PATH`.
 
-On macOS first-run you may need to clear Gatekeeper quarantine:
+If macOS blocks it:
 
 ```sh
 xattr -d com.apple.quarantine /path/to/stratt
@@ -76,7 +53,7 @@ cd <any-repo-you-have>
 stratt doctor
 ```
 
-`doctor` reports the detected stacks and the resolved backend for every universal command. What it shows is exactly what each command will run.
+`doctor` shows the detected stacks and exactly what each command will run.
 
 {{< cards >}}
 {{< card link="/docs/quick-start" title="Quick Start" subtitle="Five minutes from install to first release" >}}
