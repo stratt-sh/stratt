@@ -177,15 +177,23 @@ func parseGalaxyTopLevel(data []byte) map[string]string {
 	return out
 }
 
-// ensureSourceInFiles auto-adds the bump source file to cfg.Files when
-// the user hasn't listed it explicitly, so its `current_version` field
-// stays in sync after every bump.  Without this, the in-file version
-// freezes at the original value and the next release computes its
-// starting point from a stale number.
+// ensureSourceInFiles auto-adds a cfg.Files entry that rewrites the bump
+// source file's `current_version` field, so it stays in sync after every
+// bump.  Without this, the in-file version freezes at the original value
+// and the next release computes its starting point from a stale number.
 //
-// bump-my-version does this transparently; we match that behavior.
-// Patterns are format-aware — TOML quotes its version string, INI
-// doesn't.
+// The entry is appended even when the user lists the source file for a
+// *different* field — the common legacy shape has pyproject.toml in
+// [[files]] targeting `[project] version` while `[tool.bumpversion]
+// .current_version` lives in the same file.  Skipping in that case (the
+// old behavior) froze current_version, and worse: the stale line is a
+// superstring of the typical `version = "X"` search, so the *next*
+// release could silently rewrite the wrong line.  Only an entry that
+// itself targets the current_version key suppresses the auto-add.
+//
+// bump-my-version updates its config's current_version transparently; we
+// match that behavior.  Patterns are format-aware — TOML quotes its
+// version string, INI doesn't.
 func ensureSourceInFiles(cfg *Config, root string) {
 	if cfg == nil || cfg.Source == "" {
 		return
@@ -195,7 +203,10 @@ func ensureSourceInFiles(cfg *Config, root string) {
 		rel = filepath.Base(cfg.Source)
 	}
 	for _, f := range cfg.Files {
-		if filepath.Clean(f.Filename) == filepath.Clean(rel) {
+		if filepath.Clean(f.Filename) != filepath.Clean(rel) {
+			continue
+		}
+		if searchTargetsCurrentVersionKey(orDefault(f.Search, cfg.SearchTemplate, "{current_version}")) {
 			return
 		}
 	}
@@ -205,6 +216,17 @@ func ensureSourceInFiles(cfg *Config, root string) {
 		Search:   search,
 		Replace:  replace,
 	})
+}
+
+// searchTargetsCurrentVersionKey reports whether a search template edits
+// the `current_version` config key itself, as opposed to merely
+// containing the {current_version} placeholder (which nearly every
+// template does).  The placeholders are stripped first so they can't
+// false-positive the key check.
+func searchTargetsCurrentVersionKey(search string) bool {
+	stripped := strings.ReplaceAll(search, "{current_version}", "")
+	stripped = strings.ReplaceAll(stripped, "{new_version}", "")
+	return strings.Contains(stripped, "current_version")
 }
 
 // defaultSearchReplaceForSource picks the format-correct search/replace

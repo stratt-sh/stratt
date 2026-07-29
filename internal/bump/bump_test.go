@@ -318,8 +318,15 @@ replace = 'version = "{new_version}"'
 	if !cfg.Commit || !cfg.Tag {
 		t.Errorf("commit/tag flags lost: %+v", cfg)
 	}
-	if len(cfg.Files) != 1 {
-		t.Errorf("files: %+v", cfg.Files)
+	// The user entry targets `[project] version`; the loader must still
+	// append the current_version entry for the source file, or the
+	// config's own version freezes after the first release.
+	if len(cfg.Files) != 2 {
+		t.Fatalf("expected user entry + auto-added current_version entry; got %d: %+v",
+			len(cfg.Files), cfg.Files)
+	}
+	if !strings.Contains(cfg.Files[1].Search, "current_version = ") {
+		t.Errorf("auto-added entry should target the current_version key: %+v", cfg.Files[1])
 	}
 }
 
@@ -428,6 +435,67 @@ replace = 'current_version = "{new_version}"'
 	if len(cfg.Files) != 1 {
 		t.Errorf("expected 1 entry (user-supplied), got %d: %+v",
 			len(cfg.Files), cfg.Files)
+	}
+}
+
+// TestSourceListedForOtherFieldStillSyncsCurrentVersion — regression for
+// the LacalleGroup/cartographer-daemon 1.16.0 release: pyproject.toml is
+// listed in [[files]] targeting `[project] version`, while the config's
+// own current_version lives in the same file.  The old dedup guard
+// ("file already listed → skip") froze current_version at the pre-bump
+// value, so the *second* release computed from a stale version — and the
+// stale `current_version = "X"` line, being a superstring of the
+// `version = "X"` search, could then be rewritten by the wrong entry.
+// The full round-trip must update both lines and reload at the new
+// version.  The top-level bare `search = "{current_version}"` mirrors
+// those repos' real config: an inherited template must not count as
+// "already targets the current_version key".
+func TestSourceListedForOtherFieldStillSyncsCurrentVersion(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[project]
+name = "x"
+version = "1.15.0"
+
+[tool.bumpversion]
+current_version = "1.15.0"
+search = "{current_version}"
+replace = "{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+`)
+	cfg, _, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Compute(cfg, Minor, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if !strings.Contains(string(body), `version = "1.16.0"`) {
+		t.Errorf("[project] version not bumped:\n%s", body)
+	}
+	if !strings.Contains(string(body), `current_version = "1.16.0"`) {
+		t.Errorf("current_version not synced:\n%s", body)
+	}
+	if strings.Contains(string(body), "1.15.0") {
+		t.Errorf("stale 1.15.0 left behind:\n%s", body)
+	}
+
+	// The second release must compute from the new version.
+	cfg2, _, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg2.CurrentVersion != "1.16.0" {
+		t.Errorf("reload after bump: got current_version %q, want 1.16.0", cfg2.CurrentVersion)
 	}
 }
 

@@ -105,6 +105,45 @@ func TestReleaseNonInteractivePatchSuccess(t *testing.T) {
 	}
 }
 
+// TestReleaseBackToBackReleases — two releases in a row must chain
+// (1.0.0 → 1.0.1 → 1.0.2).  Regression: setupRepo's config lists
+// pyproject.toml in [[files]] for the `[project] version` field, and the
+// loader used to skip auto-syncing `current_version` whenever the source
+// file was already listed — freezing it, so the second release computed
+// from a stale version and aborted (or worse, rewrote the wrong line).
+func TestReleaseBackToBackReleases(t *testing.T) {
+	dir := setupRepo(t, "1.0.0")
+	for _, want := range []string{"1.0.1", "1.0.2"} {
+		var stdout, stderr bytes.Buffer
+		err := Run(context.Background(), Options{
+			CWD:       dir,
+			Action:    bump.Action{Kind: bump.Patch, Op: bump.OpRelease},
+			HasAction: true,
+			CI:        true,
+			Push:      false,
+			Stdin:     strings.NewReader(""),
+			Stdout:    &stdout,
+			Stderr:    &stderr,
+		})
+		if err != nil {
+			t.Fatalf("release to %s failed: %v\nstderr: %s", want, err, stderr.String())
+		}
+		body, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+		if !strings.Contains(string(body), `version = "`+want+`"`) {
+			t.Fatalf("expected [project] version %s:\n%s", want, body)
+		}
+		if !strings.Contains(string(body), `current_version = "`+want+`"`) {
+			t.Fatalf("expected current_version %s after release:\n%s", want, body)
+		}
+	}
+	tagOut, _ := exec.Command("git", "-C", dir, "tag", "-l").CombinedOutput()
+	for _, tag := range []string{"v1.0.1", "v1.0.2"} {
+		if !strings.Contains(string(tagOut), tag) {
+			t.Errorf("expected tag %s; got: %s", tag, tagOut)
+		}
+	}
+}
+
 // TestReleaseCommitFalseWritesButDoesNotCommit — Options.Commit=false
 // (the review-then-merge flow) must rewrite the version files but make no
 // commit and no tag.  Regression: the override was parsed and documented
