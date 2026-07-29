@@ -26,6 +26,44 @@ func TestDocsCommandSelectsMkDocs(t *testing.T) {
 	}
 }
 
+// TestDocsCommandMkDocsViaUV — in a python+uv project whose lock
+// provides mkdocs, `stratt docs build/serve` routes through `uv run`
+// (matching the capability chain) so the .venv-installed mkdocs is used.
+func TestDocsCommandMkDocsViaUV(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", "version = 1\n\n[[package]]\nname = \"mkdocs\"\nversion = \"1.6.1\"\n")
+
+	for _, action := range []string{"build", "serve"} {
+		tool, argv, err := docsCommand(dir, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "run --all-extras --all-groups mkdocs " + action
+		if tool != "uv" || strings.Join(argv, " ") != want {
+			t.Errorf("%s: got %s %v, want uv %s", action, tool, argv, want)
+		}
+	}
+}
+
+// TestDocsCommandMkDocsUVWithoutPackage — the uv stack without mkdocs in
+// the lock keeps the PATH-based invocation.
+func TestDocsCommandMkDocsUVWithoutPackage(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", "version = 1\n\n[[package]]\nname = \"mkdocs-material\"\nversion = \"9.5.0\"\n")
+
+	tool, argv, err := docsCommand(dir, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool != "mkdocs" || len(argv) != 1 || argv[0] != "build" {
+		t.Errorf("got %s %v, want mkdocs [build]", tool, argv)
+	}
+}
+
 func TestDocsCommandSelectsSphinx(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "docs/conf.py")

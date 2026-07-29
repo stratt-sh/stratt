@@ -348,7 +348,7 @@ func newDoctorCmd(b BuildInfo) *cobra.Command {
 				fmt.Fprintln(out, st.Bold("Missing tools:"))
 				mtw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 				for _, t := range missingTools {
-					hint := InstallHint(t)
+					hint := installHintInRepo(resolver, t)
 					if hint == "" {
 						hint = "(no install hint — check the tool's own docs)"
 					}

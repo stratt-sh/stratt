@@ -1,5 +1,7 @@
 package cli
 
+import "github.com/stratt-sh/stratt/internal/capability"
+
 // InstallHint returns a one-line install command for tool, or "" when
 // stratt has no specific suggestion to offer.  Used by `stratt doctor`
 // to surface actionable next steps when a resolved engine's binary
@@ -17,7 +19,11 @@ func InstallHint(tool string) string {
 	case "hugo":
 		return "brew install hugo"
 	case "mkdocs":
-		return "uv tool install mkdocs-material"
+		// mkdocs-material is a theme, not the tool — it ships no
+		// executables, so `uv tool install mkdocs-material` always fails.
+		// Install mkdocs itself, with the theme (and any project plugins,
+		// e.g. mkdocstrings) layered in via --with.
+		return "uv tool install mkdocs --with mkdocs-material (add --with <plugin> per mkdocs plugin)"
 	case "sphinx-build":
 		return "uv tool install sphinx"
 	case "sphinx-autobuild":
@@ -66,4 +72,15 @@ func InstallHint(tool string) string {
 		return "uv tool install ansible-core"
 	}
 	return ""
+}
+
+// installHintInRepo returns the install suggestion for tool, adjusted
+// for repo context.  In a python+uv repo a missing mkdocs is better
+// fixed by making it a project dependency (docs then resolves through
+// `uv run`, no global install at all) than by a PATH install.
+func installHintInRepo(r *capability.Resolver, tool string) string {
+	if tool == "mkdocs" && r != nil && r.HasStack("python+uv") {
+		return "add mkdocs to the project's dev dependencies, then `stratt sync`"
+	}
+	return InstallHint(tool)
 }

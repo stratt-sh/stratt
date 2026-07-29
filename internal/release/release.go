@@ -13,9 +13,13 @@
 //     approves the one bump that matters up front and isn't called back
 //     to a still-waiting prompt after the tests finish.
 //  5. Verification suite (PreReleaseCheck: `stratt all` + build check).
-//  6. Apply: write files, stage, commit, tag.
-//  7. Push (default ON per R2.4.5; configurable off).
-//  8. PostRelease hook (optional, e.g. the `release --deploy <env>` chain).
+//  6. Apply: write files.
+//  7. Lockfile sync (locksync.go): regenerate ecosystem lockfiles that
+//     record the project's own version (uv.lock, package-lock.json) so
+//     they land inside the release commit.
+//  8. Stage, commit, tag.
+//  9. Push (default ON per R2.4.5; configurable off).
+//  10. PostRelease hook (optional, e.g. the `release --deploy <env>` chain).
 package release
 
 import (
@@ -90,6 +94,19 @@ type Options struct {
 	// SkipChecks bypasses PreReleaseCheck entirely.  For emergency
 	// releases when the full check suite is broken for unrelated reasons.
 	SkipChecks bool
+
+	// SyncLockfiles enables the post-bump lockfile re-sync: after the bump
+	// engine writes the version files, directories whose manifest the plan
+	// modified get their ecosystem lockfile regenerated (`uv lock`,
+	// `npm install --package-lock-only --ignore-scripts`) so the lockfile's
+	// copy of the project version lands inside the release commit.  The
+	// caller resolves this from config ([release] sync_lockfiles, default
+	// true) — like Push, the zero value here means "off".
+	SyncLockfiles bool
+
+	// Subprojects are the declared [[subprojects]] paths (relative to CWD).
+	// Lockfile sync considers the repo root plus these directories.
+	Subprojects []string
 
 	// Style colorizes status and success output.  Optional; when nil, Run
 	// installs a no-color style so output renders as plain text.
@@ -172,6 +189,18 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Push = false
 	}
 
+	// Legacy bump-my-version configs may carry pre_commit_hooks (typically
+	// `uv sync` + `git add uv.lock`).  stratt never executes them — say so
+	// loudly, so users delete the stale config knowingly instead of trusting
+	// it silently.  Lockfile sync happens natively below instead.
+	if opts.SyncLockfiles && len(cfg.PreCommitHooks) > 0 {
+		fmt.Fprintf(opts.Stderr,
+			"warning: %s declares pre_commit_hooks, which stratt does not execute; "+
+				"lockfile sync (uv.lock, package-lock.json) now happens natively during "+
+				"`stratt release` — remove the stale hooks\n",
+			relForDisplay(opts.CWD, cfg.Source))
+	}
+
 	// Determine the version transition: explicit > prompt.
 	action, err := resolveAction(opts, cfg, stdin)
 	if err != nil {
@@ -245,12 +274,29 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("applying bump: %w", err)
 	}
 
+	// Re-sync ecosystem lockfiles that record the project's own version
+	// (uv.lock, package-lock.json) now that the manifests carry the new
+	// one, so the update lands inside the release commit instead of
+	// surfacing as a dangling diff after the next `uv sync`.  A failure
+	// aborts before anything is committed or tagged.
+	var lockfiles []string
+	if opts.SyncLockfiles {
+		for _, s := range planLockSyncs(opts.CWD, opts.Subprojects, plan) {
+			fmt.Fprint(opts.Stderr, opts.Style.Progress(s.display()))
+			if err := runLockSync(ctx, opts.CWD, s); err != nil {
+				return err
+			}
+			lockfiles = append(lockfiles, s.Lockfile)
+		}
+	}
+
 	// Stage and commit.
 	if cfg.Commit {
-		paths := make([]string, 0, len(plan.FileChanges))
+		paths := make([]string, 0, len(plan.FileChanges)+len(lockfiles))
 		for _, c := range plan.FileChanges {
 			paths = append(paths, c.Path)
 		}
+		paths = append(paths, lockfiles...)
 		if err := repo.Add(ctx, paths...); err != nil {
 			return err
 		}
@@ -327,9 +373,10 @@ func detectReleaseBranch(ctx context.Context, repo *git.Repo) (string, error) {
 			"or pass --branch <name> explicitly")
 }
 
-// preflight runs R2.4.1's branch/clean checks.  Other gates (tests, lint,
-// lockfile sync) will be added as their integrations mature; this is the
-// minimum viable set that protects users from the worst footguns.
+// preflight runs R2.4.1's branch/clean checks.  Tests and lint run later
+// via PreReleaseCheck, and lockfile sync happens natively after the bump
+// (locksync.go); this is the minimum viable gate set that protects users
+// from the worst footguns.
 func preflight(ctx context.Context, repo *git.Repo, opts Options) error {
 	branch, err := repo.Branch(ctx)
 	if err != nil {

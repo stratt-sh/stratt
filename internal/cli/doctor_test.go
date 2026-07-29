@@ -181,6 +181,88 @@ func TestDoctorMissingToolsDedupesAcrossCommands(t *testing.T) {
 	}
 }
 
+// TestDoctorUVProjectResolvesDocsViaUV — a python+uv repo whose lock
+// provides mkdocs shows the `uv run` form in the Resolved commands table
+// and does NOT report mkdocs as a missing tool: the docs engine's binary
+// is uv, and mkdocs comes from the project env after `stratt sync`.
+func TestDoctorUVProjectResolvesDocsViaUV(t *testing.T) {
+	t.Setenv("PATH", "") // nothing on PATH → deterministic missing-tools set
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", "version = 1\n\n[[package]]\nname = \"mkdocs\"\nversion = \"1.6.1\"\n")
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "x", Commit: "x", Date: "x"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "uv run --all-extras --all-groups mkdocs build") {
+		t.Errorf("docs row should show the uv run form; got:\n%s", body)
+	}
+	// Every engine here is uv-backed, so with an empty PATH the Missing
+	// tools block lists uv — and must not list mkdocs.
+	idx := strings.Index(body, "Missing tools:")
+	if idx < 0 {
+		t.Fatalf("expected Missing tools block (empty PATH); got:\n%s", body)
+	}
+	if missing := body[idx:]; strings.Contains(missing, "mkdocs") {
+		t.Errorf("mkdocs should not be reported missing (it resolves via uv); got:\n%s", missing)
+	}
+}
+
+// TestDoctorUVProjectWithoutMkdocsDepGetsSyncHint — the uv stack is
+// present but the lock doesn't provide mkdocs: docs falls back to the
+// PATH invocation, and the install hint points at making mkdocs a
+// project dependency instead of a global tool install.
+func TestDoctorUVProjectWithoutMkdocsDepGetsSyncHint(t *testing.T) {
+	t.Setenv("PATH", "")
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	touch(t, dir, "pyproject.toml")
+	touch(t, dir, "uv.lock")
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "x", Commit: "x", Date: "x"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "add mkdocs to the project's dev dependencies") {
+		t.Errorf("expected the dev-dependency hint for mkdocs in a uv repo; got:\n%s", body)
+	}
+}
+
+// TestDoctorMkDocsInstallHintCorrected — outside a uv project, the
+// mkdocs hint installs mkdocs itself with the theme layered in via
+// --with; the old `uv tool install mkdocs-material` always failed
+// (mkdocs-material ships no executables).
+func TestDoctorMkDocsInstallHintCorrected(t *testing.T) {
+	t.Setenv("PATH", "")
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	withCwd(t, dir)
+
+	cmd := newDoctorCmd(BuildInfo{Version: "x", Commit: "x", Date: "x"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "uv tool install mkdocs --with mkdocs-material") {
+		t.Errorf("expected the corrected mkdocs install hint; got:\n%s", body)
+	}
+}
+
 // TestDoctorShowsBackendMappingForMultiStack — multi-stack repos must
 // show the resolved backend for every universal command.  This is the
 // §0 transparency check in test form.

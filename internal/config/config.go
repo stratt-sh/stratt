@@ -99,6 +99,12 @@ type Release struct {
 
 	// Remote is the git remote to push to.  Empty means "origin".
 	Remote string
+
+	// SyncLockfiles controls whether the release flow re-syncs ecosystem
+	// lockfiles (uv.lock, package-lock.json) after the version bump so
+	// they land inside the release commit.  Pointer so nil means "use
+	// stratt's default" (true).
+	SyncLockfiles *bool
 }
 
 // Deploy is the schema for [deploy] / [tool.stratt.deploy].  Mirrors
@@ -172,10 +178,11 @@ type rawSubproject struct {
 }
 
 type rawRelease struct {
-	Branch string `toml:"branch"`
-	Push   *bool  `toml:"push"`
-	Commit *bool  `toml:"commit"`
-	Remote string `toml:"remote"`
+	Branch        string `toml:"branch"`
+	Push          *bool  `toml:"push"`
+	Commit        *bool  `toml:"commit"`
+	Remote        string `toml:"remote"`
+	SyncLockfiles *bool  `toml:"sync_lockfiles"`
 }
 
 type rawDeploy struct {
@@ -373,10 +380,11 @@ func normalize(raw *rawProject) (*Project, error) {
 
 	if raw.Release != nil {
 		p.Release = &Release{
-			Branch: raw.Release.Branch,
-			Push:   raw.Release.Push,
-			Commit: raw.Release.Commit,
-			Remote: raw.Release.Remote,
+			Branch:        raw.Release.Branch,
+			Push:          raw.Release.Push,
+			Commit:        raw.Release.Commit,
+			Remote:        raw.Release.Remote,
+			SyncLockfiles: raw.Release.SyncLockfiles,
 		}
 	}
 

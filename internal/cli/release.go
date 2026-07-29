@@ -60,6 +60,11 @@ project the same way CI will (for goreleaser repos,
 of in CI after the tag is pushed.  stratt does NOT produce or publish
 release artifacts — GitHub Actions takes over after the tag.
 
+After the bump, ecosystem lockfiles that record the project's own version
+(uv.lock, package-lock.json) are re-synced (` + "`uv lock`" + `,
+` + "`npm install --package-lock-only`" + `) and staged into the release commit.
+Disable with ` + "`[release] sync_lockfiles = false`" + `.
+
 With ` + "`--deploy <env>`" + `, a successful release is immediately followed by a
 deploy of the new version to that environment (the same flow as
 ` + "`stratt deploy <env> <new-version>`" + `): the overlay image tag is bumped,
@@ -122,6 +127,7 @@ Full documentation: https://stratt.sh/docs/`,
 			branch := branchFlag
 			remote := remoteFlag
 			push := !noPushFlag
+			syncLockfiles := true
 
 			// commit is a tri-state: nil = defer to the bump config's own
 			// `commit` setting; non-nil = an explicit override from a CLI
@@ -145,6 +151,9 @@ Full documentation: https://stratt.sh/docs/`,
 				}
 				if commit == nil && proj.Release.Commit != nil {
 					commit = proj.Release.Commit
+				}
+				if proj.Release.SyncLockfiles != nil {
+					syncLockfiles = *proj.Release.SyncLockfiles
 				}
 			}
 			// User layer (only applies when project hasn't set the field
@@ -186,19 +195,30 @@ Full documentation: https://stratt.sh/docs/`,
 				}
 			}
 
+			// Declared subprojects widen the lockfile-sync scan beyond the
+			// repo root (each may carry its own manifest + lockfile pair).
+			var subprojects []string
+			if proj != nil {
+				for _, sp := range proj.Subprojects {
+					subprojects = append(subprojects, sp.Path)
+				}
+			}
+
 			opts := release.Options{
-				CWD:        cwd,
-				CI:         ciFlag,
-				AssumeYes:  yesFlag,
-				Style:      styleFrom(cmd.Context()),
-				Branch:     branch,
-				Remote:     remote,
-				Push:       push,
-				Commit:     commit,
-				SkipChecks: skipChecksFlag,
-				Stdin:      cmd.InOrStdin(),
-				Stdout:     cmd.OutOrStdout(),
-				Stderr:     cmd.ErrOrStderr(),
+				CWD:           cwd,
+				CI:            ciFlag,
+				AssumeYes:     yesFlag,
+				Style:         styleFrom(cmd.Context()),
+				Branch:        branch,
+				Remote:        remote,
+				Push:          push,
+				Commit:        commit,
+				SkipChecks:    skipChecksFlag,
+				SyncLockfiles: syncLockfiles,
+				Subprojects:   subprojects,
+				Stdin:         cmd.InOrStdin(),
+				Stdout:        cmd.OutOrStdout(),
+				Stderr:        cmd.ErrOrStderr(),
 				PreReleaseCheck: func(ctx context.Context) error {
 					r := runner.New(runner.Options{
 						Stdout:   cmd.OutOrStdout(),

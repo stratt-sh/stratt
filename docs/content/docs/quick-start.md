@@ -53,7 +53,7 @@ Resolved commands:
   clean    → remove build/cache artifacts per detected stacks
   release  → native bump engine (reads [tool.bumpversion])
   deploy   → kustomize image bump (deploy/overlays/<env>/kustomization.yaml)
-  docs     → mkdocs build
+  docs     → uv run mkdocs build
   all      → format + lint + test + docs
 ```
 
@@ -133,7 +133,8 @@ What happens:
 3. **`stratt all`** runs as a pre-release gate — tests, lint, format check, docs build (whatever's detected).
 4. **Re-check clean tree** — if a formatter touched files during step 3, abort so you can commit those first.
 5. **Bump** version in your configured files.
-6. **Commit + tag + push** the release. GitHub Actions takes over from there.
+6. **Sync lockfiles** — lockfiles that record the project's own version (`uv.lock`, `package-lock.json`) are regenerated via `uv lock` / `npm install --package-lock-only` so they land inside the release commit. See [Configuration → Release](/docs/configuration#lockfile-sync).
+7. **Commit + tag + push** the release. GitHub Actions takes over from there.
 
 The post-push output makes the result obvious:
 

@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/stratt-sh/stratt/internal/capability"
 )
 
 // TestInstallHintCovers — sanity check that every binary stratt
@@ -46,5 +48,42 @@ func TestInstallHintHugoBrew(t *testing.T) {
 	got := InstallHint("hugo")
 	if !strings.Contains(got, "brew install hugo") {
 		t.Errorf("hugo hint should mention brew install hugo; got %q", got)
+	}
+}
+
+// TestInstallHintMkDocsInstallsTheTool — the hint must install mkdocs
+// itself, pulling the theme in via --with.  The old suggestion
+// (`uv tool install mkdocs-material`) always failed: mkdocs-material is
+// a theme package that ships no executables, so uv refuses it.
+func TestInstallHintMkDocsInstallsTheTool(t *testing.T) {
+	got := InstallHint("mkdocs")
+	if !strings.Contains(got, "uv tool install mkdocs --with mkdocs-material") {
+		t.Errorf("mkdocs hint should install mkdocs with the theme via --with; got %q", got)
+	}
+	if strings.Contains(got, "install mkdocs-material ") || strings.HasSuffix(got, "install mkdocs-material") {
+		t.Errorf("mkdocs hint must not suggest installing mkdocs-material as the tool; got %q", got)
+	}
+}
+
+// TestInstallHintInRepoUVProject — inside a python+uv repo, a missing
+// mkdocs is better fixed by making it a project dependency; other tools
+// keep their generic hints.
+func TestInstallHintInRepoUVProject(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "pyproject.toml")
+	touch(t, dir, "uv.lock")
+	r := capability.New(dir)
+
+	if got := installHintInRepo(r, "mkdocs"); !strings.Contains(got, "dev dependencies") || !strings.Contains(got, "stratt sync") {
+		t.Errorf("uv-repo mkdocs hint should point at dev deps + stratt sync; got %q", got)
+	}
+	if got := installHintInRepo(r, "hugo"); got != InstallHint("hugo") {
+		t.Errorf("non-mkdocs tools should keep the generic hint; got %q", got)
+	}
+
+	// Outside a uv repo the generic (corrected) mkdocs hint stands.
+	plain := capability.New(t.TempDir())
+	if got := installHintInRepo(plain, "mkdocs"); got != InstallHint("mkdocs") {
+		t.Errorf("non-uv repo should get the generic mkdocs hint; got %q", got)
 	}
 }

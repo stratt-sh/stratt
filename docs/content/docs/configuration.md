@@ -102,11 +102,23 @@ The `[release]` table tunes the release flow. Every field is optional; absence m
 
 ```toml
 [release]
-branch = "main"     # release branch; default auto-detects main, then master
-remote = "origin"   # push target; default "origin"
-push = true         # push commit + tag; default true
-commit = false      # create the bump commit; default true — false enables a review-then-merge flow
+branch = "main"        # release branch; default auto-detects main, then master
+remote = "origin"      # push target; default "origin"
+push = true            # push commit + tag; default true
+commit = false         # create the bump commit; default true — false enables a review-then-merge flow
+sync_lockfiles = true  # re-sync ecosystem lockfiles after the bump; default true
 ```
+
+### Lockfile sync
+
+Ecosystem lockfiles record the project's own version, so a version bump alone leaves them one release behind — the next `uv sync` produces a dangling diff that pollutes whatever commit comes next. With `sync_lockfiles` on (the default), `stratt release` regenerates them after the bump and stages the result inside the release commit:
+
+- **python+uv** — the bump touched `pyproject.toml` and `uv.lock` exists: `uv lock` runs (lockfile only; no virtualenv is touched). uv also owns the version formatting, so prereleases work even though `pyproject.toml` holds `1.2.3-rc.2` while the lock records the PEP 440-normalized `1.2.3rc2`.
+- **node+npm** — the bump touched `package.json` and `package-lock.json` exists: `npm install --package-lock-only --ignore-scripts` runs.
+
+The repo root and every declared `[[subprojects]]` path are considered. If a lock command fails, the release aborts before anything is committed or tagged. With `--no-commit`, the synced lockfiles are left uncommitted alongside the bumped files.
+
+This makes the old workaround of listing the lockfile as a `[[bump.files]]` entry unnecessary (and for prereleases it never worked — the search template can't match uv's normalized version string). Likewise, legacy `[tool.bumpversion]` `pre_commit_hooks` like `uv sync` are **not executed** by stratt; the release flow warns when it sees them so the stale config can be deleted.
 
 ## Deploy
 

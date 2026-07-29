@@ -277,6 +277,51 @@ func TestDocsChainMkDocsAndSphinx(t *testing.T) {
 	}
 }
 
+// TestDocsChainMkDocsViaUV — a python+uv project whose locked dependency
+// set provides mkdocs resolves docs through `uv run`, consistent with
+// test/lint/format.  mkdocs typically lives in the dev dependency group
+// and exists only inside .venv after `stratt sync` — a bare `mkdocs
+// build` from PATH would fail despite a fully working project env.
+func TestDocsChainMkDocsViaUV(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", `version = 1
+
+[[package]]
+name = "mkdocs"
+version = "1.6.1"
+
+[[package]]
+name = "mkdocs-material"
+version = "9.5.0"
+`)
+	got := New(dir).Resolve("docs")
+	if got.Engine == nil || got.Engine.Name() != "uv run --all-extras --all-groups mkdocs build" {
+		t.Errorf("uv-provided mkdocs should resolve through uv run; got %v", got.Engine)
+	}
+}
+
+// TestDocsChainMkDocsUVWithoutPackage — the uv stack alone isn't enough:
+// when the lock doesn't provide mkdocs, docs stays on the PATH-based
+// invocation.  A same-prefix package (mkdocs-material) must not
+// false-positive the lookup.
+func TestDocsChainMkDocsUVWithoutPackage(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "mkdocs.yml")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", `version = 1
+
+[[package]]
+name = "mkdocs-material"
+version = "9.5.0"
+`)
+	got := New(dir).Resolve("docs")
+	if got.Engine == nil || got.Engine.Name() != "mkdocs build" {
+		t.Errorf("lock without mkdocs should keep the PATH invocation; got %v", got.Engine)
+	}
+}
+
 // TestPyprojectBumpConfigSubsection — `[tool.stratt.bump]` (the future
 // native location) is also recognized by hasBumpConfig.
 func TestPyprojectBumpConfigSubsection(t *testing.T) {

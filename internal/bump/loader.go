@@ -299,7 +299,9 @@ type rawBumpVersion struct {
 	Commit         *bool          `toml:"commit"`
 	Message        string         `toml:"message"`
 
-	// Parsed but not honored; see rawBumpVersion doc.
+	// Parsed but not honored; see rawBumpVersion doc.  PreCommitHooks is
+	// additionally surfaced on Config (still never executed) so the
+	// release flow can warn about it.
 	Parse                string   `toml:"parse"`
 	Serialize            []string `toml:"serialize"`
 	Regex                *bool    `toml:"regex"`
@@ -327,6 +329,7 @@ func (rb *rawBumpVersion) toConfig() *Config {
 		TagNameTemplate: rb.TagName,
 		Commit:          rb.Commit == nil || *rb.Commit,
 		Tag:             rb.Tag == nil || *rb.Tag,
+		PreCommitHooks:  append([]string(nil), rb.PreCommitHooks...),
 	}
 	for _, fe := range rb.Files {
 		c.Files = append(c.Files, FileEntry{

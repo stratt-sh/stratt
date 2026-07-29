@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/stratt-sh/stratt/internal/capability"
 	"github.com/stratt-sh/stratt/internal/detect"
 )
 
@@ -116,16 +117,28 @@ func newDocsActionCmd(action string) *cobra.Command {
 // docsCommand returns (tool, args) for the given action against whichever
 // docs toolchain is detected.  Returns an error when no docs stack is
 // detected.
+//
+// MkDocs routes through `uv run` when the python+uv stack is present and
+// the project's lock provides mkdocs, mirroring the capability chain's
+// docs resolution — the tool typically lives only in .venv.
 func docsCommand(root, action string) (string, []string, error) {
 	report := detect.Scan(root)
+	uvMkdocs := false
+	for _, s := range report.Stacks {
+		if s.Name == "python+uv" {
+			uvMkdocs = capability.UVProvides(root, "mkdocs")
+			break
+		}
+	}
 	for _, s := range report.Stacks {
 		switch s.Name {
 		case "mkdocs":
 			switch action {
-			case "build":
-				return "mkdocs", []string{"build"}, nil
-			case "serve":
-				return "mkdocs", []string{"serve"}, nil
+			case "build", "serve":
+				if uvMkdocs {
+					return "uv", []string{"run", "--all-extras", "--all-groups", "mkdocs", action}, nil
+				}
+				return "mkdocs", []string{action}, nil
 			}
 		case "sphinx":
 			// Output under docs/_build/html so `stratt clean` and

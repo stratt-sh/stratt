@@ -89,6 +89,12 @@ type Config struct {
 
 	// TagNameTemplate is the tag name.  Same template variables.
 	TagNameTemplate string
+
+	// PreCommitHooks carries the legacy bump-my-version `pre_commit_hooks`
+	// list verbatim.  stratt does NOT execute these (hooks are deferred per
+	// the package doc); the field exists so the release flow can warn users
+	// whose config still relies on them.
+	PreCommitHooks []string
 }
 
 // FileEntry describes one file to edit during a bump.

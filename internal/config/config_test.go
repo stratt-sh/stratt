@@ -188,6 +188,23 @@ remote = "upstream"
 	}
 }
 
+// TestLoadReleaseSyncLockfiles — sync_lockfiles populates the pointer so
+// nil still means "stratt's default" (true).
+func TestLoadReleaseSyncLockfiles(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "stratt.toml", `
+[release]
+sync_lockfiles = false
+`)
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Release == nil || p.Release.SyncLockfiles == nil || *p.Release.SyncLockfiles {
+		t.Errorf("sync_lockfiles: expected explicit false, got %+v", p.Release)
+	}
+}
+
 // TestLoadReleasePushTrueExplicit — push=true with an explicit setting
 // should populate the pointer (distinguishing it from "not set").
 func TestLoadReleasePushTrueExplicit(t *testing.T) {

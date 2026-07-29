@@ -23,6 +23,26 @@ import (
 // stratt opts into the full set by default.
 var uvAllFlags = []string{"--all-extras", "--all-groups"}
 
+// UVProvides reports whether the uv-managed project at root has pkg in
+// its locked dependency set, i.e. whether `uv run <pkg's executable>`
+// will work after a `stratt sync` without any global install.
+//
+// uv.lock is checked rather than pyproject.toml because it covers every
+// declaration shape at once — [project.dependencies], optional
+// dependencies, [dependency-groups], legacy [tool.uv.dev-dependencies],
+// and transitive deps — in one normalized place.  The match is the
+// literal `name = "<pkg>"` line of a [[package]] block, so a package
+// whose name merely shares the prefix (mkdocs vs mkdocs-material) can't
+// false-positive.  Exported for `stratt docs`, which resolves its
+// build/serve invocations outside the engine chains.
+func UVProvides(root, pkg string) bool {
+	data, err := os.ReadFile(filepath.Join(root, "uv.lock"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), `name = "`+pkg+`"`)
+}
+
 // resolveBuild — see requirements.md §3 "build" chain.
 func (r *Resolver) resolveBuild() Engine {
 	switch {
@@ -441,9 +461,20 @@ func (r *Resolver) resolveDeploy() Engine {
 }
 
 // resolveDocs — first matching documentation toolchain.
+//
+// MkDocs in a python+uv repo resolves through `uv run` when the project's
+// locked dependency set provides mkdocs — consistent with how test/lint/
+// format already resolve for uv projects, and required for the common case
+// where mkdocs lives in the dev dependency group and only exists inside
+// .venv after `stratt sync` (no global install).  When the lock doesn't
+// provide mkdocs, the PATH-based invocation stands and `stratt doctor`
+// suggests making it a project dependency.
 func (r *Resolver) resolveDocs() Engine {
 	switch {
 	case r.HasStack("mkdocs"):
+		if r.HasStack("python+uv") && UVProvides(r.root, "mkdocs") {
+			return &execEngine{tool: "uv", argv: append([]string{"run"}, append(uvAllFlags, "mkdocs", "build")...)}
+		}
 		return &execEngine{tool: "mkdocs", argv: []string{"build"}}
 	case r.HasStack("sphinx"):
 		// Output to docs/_build/html (matches Make's `cd docs && sphinx-build -b html . _build/html`).
