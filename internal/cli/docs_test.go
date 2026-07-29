@@ -199,3 +199,54 @@ func TestDocsCommandSelectsHugoAtRoot(t *testing.T) {
 		}
 	}
 }
+
+// TestDocsCommandSphinxViaUV — in a python+uv project whose lock provides
+// sphinx and sphinx-autobuild, `stratt docs build/serve` routes through
+// `uv run` (matching the capability chain) so the .venv-installed tools —
+// the only ones that can import the project for autodoc — are used.
+func TestDocsCommandSphinxViaUV(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "docs/conf.py")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", "version = 1\n\n[[package]]\nname = \"sphinx\"\nversion = \"8.1.3\"\n\n[[package]]\nname = \"sphinx-autobuild\"\nversion = \"2024.10.3\"\n")
+
+	tool, argv, err := docsCommand(dir, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "run --all-extras --all-groups sphinx-build -b html docs docs/_build/html"; tool != "uv" || strings.Join(argv, " ") != want {
+		t.Errorf("build: got %s %v, want uv %s", tool, argv, want)
+	}
+	tool, argv, err = docsCommand(dir, "serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "run --all-extras --all-groups sphinx-autobuild docs docs/_build/html"; tool != "uv" || strings.Join(argv, " ") != want {
+		t.Errorf("serve: got %s %v, want uv %s", tool, argv, want)
+	}
+}
+
+// TestDocsCommandSphinxUVPartialLock — each tool is gated on its own
+// package: a lock that provides sphinx but not sphinx-autobuild builds
+// through uv run while serve falls back to PATH.
+func TestDocsCommandSphinxUVPartialLock(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "docs/conf.py")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", "version = 1\n\n[[package]]\nname = \"sphinx\"\nversion = \"8.1.3\"\n")
+
+	tool, _, err := docsCommand(dir, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool != "uv" {
+		t.Errorf("build should route through uv; got %s", tool)
+	}
+	tool, argv, err := docsCommand(dir, "serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool != "sphinx-autobuild" || strings.Join(argv, " ") != "docs docs/_build/html" {
+		t.Errorf("serve without sphinx-autobuild in the lock should stay on PATH; got %s %v", tool, argv)
+	}
+}

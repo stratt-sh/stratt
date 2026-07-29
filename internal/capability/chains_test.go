@@ -696,3 +696,104 @@ func TestBuildVerifyNoStack(t *testing.T) {
 		t.Errorf("expected nil for empty repo, got %q", got.Name())
 	}
 }
+
+// TestResolveResetComposite — reset chains clean + setup when a setup
+// engine resolves (any primary stack).
+func TestResolveResetComposite(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+
+	reset := New(dir).Resolve("reset").Engine
+	if reset == nil {
+		t.Fatal("expected composite, got nil")
+	}
+	comp, ok := reset.(CompositeEngine)
+	if !ok {
+		t.Fatalf("expected CompositeEngine, got %T", reset)
+	}
+	want := []string{"clean", "setup"}
+	got := comp.CompositeMembers()
+	if len(got) != len(want) {
+		t.Fatalf("members: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("members[%d]: got %q, want %q", i, got[i], want[i])
+		}
+	}
+	if reset.Name() != "clean + setup" {
+		t.Errorf("display: got %q, want %q", reset.Name(), "clean + setup")
+	}
+}
+
+// TestResolveResetCleanOnlyWithoutSetup — in a repo with no setup engine
+// (nothing detected), reset degrades to the clean stage alone: clean
+// always resolves (.stratt/cache removal), setup has nothing to do.
+func TestResolveResetCleanOnlyWithoutSetup(t *testing.T) {
+	reset := New(t.TempDir()).Resolve("reset").Engine
+	if reset == nil {
+		t.Fatal("expected composite, got nil")
+	}
+	comp := reset.(CompositeEngine)
+	if got := comp.CompositeMembers(); len(got) != 1 || got[0] != "clean" {
+		t.Errorf("members: got %v, want [clean]", got)
+	}
+}
+
+// TestResolveCleanIsRunnableEngine — clean resolves to the native clean
+// engine (not a display-only delegate), so `stratt run clean` and the
+// reset composite can execute it through the task registry.
+func TestResolveCleanIsRunnableEngine(t *testing.T) {
+	eng := New(t.TempDir()).Resolve("clean").Engine
+	if eng == nil {
+		t.Fatal("expected an engine, got nil")
+	}
+	if _, ok := eng.(CleanEngine); !ok {
+		t.Fatalf("expected CleanEngine, got %T", eng)
+	}
+	if eng.Status() != StatusReady {
+		t.Errorf("clean should always be ready; got %v", eng.Status())
+	}
+}
+
+// TestDocsChainSphinxViaUV — a python+uv project whose locked dependency
+// set provides sphinx resolves docs through `uv run`.  Doubly important
+// for sphinx: autodoc must import the project package and its
+// theme/extensions, which only the project venv provides — a global
+// sphinx-build can't build those projects at all.
+func TestDocsChainSphinxViaUV(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "docs/conf.py")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", `version = 1
+
+[[package]]
+name = "sphinx"
+version = "8.1.3"
+`)
+	got := New(dir).Resolve("docs")
+	want := "uv run --all-extras --all-groups sphinx-build -b html docs docs/_build/html"
+	if got.Engine == nil || got.Engine.Name() != want {
+		t.Errorf("uv-provided sphinx should resolve through uv run; got %v", got.Engine)
+	}
+}
+
+// TestDocsChainSphinxUVWithoutPackage — the uv stack alone isn't enough:
+// when the lock doesn't provide sphinx, docs stays on the PATH-based
+// invocation.  A same-prefix package (sphinx-rtd-theme) must not
+// false-positive the lookup.
+func TestDocsChainSphinxUVWithoutPackage(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "docs/conf.py")
+	touch(t, dir, "pyproject.toml")
+	writeFile(t, dir, "uv.lock", `version = 1
+
+[[package]]
+name = "sphinx-rtd-theme"
+version = "3.0.0"
+`)
+	got := New(dir).Resolve("docs")
+	if got.Engine == nil || got.Engine.Name() != "sphinx-build -b html docs docs/_build/html" {
+		t.Errorf("lock without sphinx should keep the PATH invocation; got %v", got.Engine)
+	}
+}

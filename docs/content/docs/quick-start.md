@@ -51,6 +51,7 @@ Resolved commands:
   lock     → uv lock
   upgrade  → uv lock --upgrade
   clean    → remove build/cache artifacts per detected stacks
+  reset    → clean + setup
   release  → native bump engine (reads [tool.bumpversion])
   deploy   → kustomize image bump (deploy/overlays/<env>/kustomization.yaml)
   docs     → uv run mkdocs build
@@ -69,6 +70,7 @@ stratt test        # run tests
 stratt lint        # run linters
 stratt format      # run formatters
 stratt style       # format + lint together
+stratt reset       # wipe and rebuild the dev environment (clean + setup)
 stratt all         # full verification (format, lint, test, docs)
 ```
 

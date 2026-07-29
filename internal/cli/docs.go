@@ -118,27 +118,37 @@ func newDocsActionCmd(action string) *cobra.Command {
 // docs toolchain is detected.  Returns an error when no docs stack is
 // detected.
 //
-// MkDocs routes through `uv run` when the python+uv stack is present and
-// the project's lock provides mkdocs, mirroring the capability chain's
-// docs resolution — the tool typically lives only in .venv.
+// MkDocs and Sphinx route through `uv run` when the python+uv stack is
+// present and the project's lock provides the tool, mirroring the
+// capability chain's docs resolution — the tool typically lives only in
+// .venv, and for Sphinx autodoc projects only the project venv can import
+// the package and its theme/extensions.  Each tool is gated on its own
+// package (sphinx-autobuild is separate from sphinx), so a lock that
+// provides one but not the other falls back to PATH for just the missing
+// one.
 func docsCommand(root, action string) (string, []string, error) {
 	report := detect.Scan(root)
-	uvMkdocs := false
+	hasUV := false
 	for _, s := range report.Stacks {
 		if s.Name == "python+uv" {
-			uvMkdocs = capability.UVProvides(root, "mkdocs")
+			hasUV = true
 			break
 		}
+	}
+	// resolve wraps argv in `uv run` when the lock provides pkg;
+	// otherwise argv[0] runs from PATH as before.
+	resolve := func(pkg string, argv ...string) (string, []string, error) {
+		if hasUV && capability.UVProvides(root, pkg) {
+			return "uv", append([]string{"run", "--all-extras", "--all-groups"}, argv...), nil
+		}
+		return argv[0], argv[1:], nil
 	}
 	for _, s := range report.Stacks {
 		switch s.Name {
 		case "mkdocs":
 			switch action {
 			case "build", "serve":
-				if uvMkdocs {
-					return "uv", []string{"run", "--all-extras", "--all-groups", "mkdocs", action}, nil
-				}
-				return "mkdocs", []string{action}, nil
+				return resolve("mkdocs", "mkdocs", action)
 			}
 		case "sphinx":
 			// Output under docs/_build/html so `stratt clean` and
@@ -146,9 +156,9 @@ func docsCommand(root, action string) (string, []string, error) {
 			// matching the `docs` engine used by `stratt all`.
 			switch action {
 			case "build":
-				return "sphinx-build", []string{"-b", "html", "docs", "docs/_build/html"}, nil
+				return resolve("sphinx", "sphinx-build", "-b", "html", "docs", "docs/_build/html")
 			case "serve":
-				return "sphinx-autobuild", []string{"docs", "docs/_build/html"}, nil
+				return resolve("sphinx-autobuild", "sphinx-autobuild", "docs", "docs/_build/html")
 			}
 		case "hugo":
 			return hugoCommand(root, action)

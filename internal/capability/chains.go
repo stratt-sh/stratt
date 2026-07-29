@@ -397,14 +397,30 @@ func (r *Resolver) resolveUpgrade() Engine {
 	return nil
 }
 
-// resolveClean — multi-stack cleanup is implemented as its own
-// subcommand (`stratt clean`) since it has different fan-out semantics
-// from the other universal commands.  This entry is delegateEngine for
-// doctor display.
+// resolveClean — multi-stack cleanup, implemented natively (see
+// cleanEngine).  Always resolves: `.stratt/cache/` is removed regardless
+// of detected stacks.  Deliberately root-scoped — clean is a repo-global
+// verb (not in fanOutVerbs), matching release/deploy/docs.
 func (r *Resolver) resolveClean() Engine {
-	return &delegateEngine{
-		display:     "remove build/cache artifacts per detected stacks",
-		delegateCmd: "stratt clean",
+	return &cleanEngine{root: r.root}
+}
+
+// resolveReset — composite of clean + setup: wipe and rebuild the dev
+// environment in one command (e.g. a python+uv .venv with stale
+// interpreter paths after the repo moved on disk).
+//
+// Like resolveAll, membership is tested through Resolve so the setup
+// stage picks up monorepo fan-out exactly as `stratt setup` does.
+// `clean` always resolves, so reset always resolves too; when no setup
+// engine matches, reset degrades to the clean stage alone.
+func (r *Resolver) resolveReset() Engine {
+	members := []string{"clean"}
+	if r.Resolve("setup").Engine != nil {
+		members = append(members, "setup")
+	}
+	return &compositeEngine{
+		display: strings.Join(members, " + "),
+		members: members,
 	}
 }
 
@@ -462,13 +478,16 @@ func (r *Resolver) resolveDeploy() Engine {
 
 // resolveDocs — first matching documentation toolchain.
 //
-// MkDocs in a python+uv repo resolves through `uv run` when the project's
-// locked dependency set provides mkdocs — consistent with how test/lint/
-// format already resolve for uv projects, and required for the common case
-// where mkdocs lives in the dev dependency group and only exists inside
-// .venv after `stratt sync` (no global install).  When the lock doesn't
-// provide mkdocs, the PATH-based invocation stands and `stratt doctor`
-// suggests making it a project dependency.
+// MkDocs and Sphinx in a python+uv repo resolve through `uv run` when the
+// project's locked dependency set provides the tool — consistent with how
+// test/lint/format already resolve for uv projects, and required for the
+// common case where the tool lives in the dev dependency group and only
+// exists inside .venv after `stratt sync` (no global install).  For
+// Sphinx this is doubly important: autodoc must import the project
+// package and its theme/extensions, which only the project venv provides
+// — a global sphinx-build can't build those projects at all.  When the
+// lock doesn't provide the tool, the PATH-based invocation stands and
+// `stratt doctor` suggests making it a project dependency.
 func (r *Resolver) resolveDocs() Engine {
 	switch {
 	case r.HasStack("mkdocs"):
@@ -480,7 +499,11 @@ func (r *Resolver) resolveDocs() Engine {
 		// Output to docs/_build/html (matches Make's `cd docs && sphinx-build -b html . _build/html`).
 		// Keeping the build output inside docs/ means `stratt clean`'s
 		// docs/_build/ removal path picks it up uniformly.
-		return &execEngine{tool: "sphinx-build", argv: []string{"-b", "html", "docs", "docs/_build/html"}}
+		sphinxArgs := []string{"sphinx-build", "-b", "html", "docs", "docs/_build/html"}
+		if r.HasStack("python+uv") && UVProvides(r.root, "sphinx") {
+			return &execEngine{tool: "uv", argv: append([]string{"run"}, append(uvAllFlags, sphinxArgs...)...)}
+		}
+		return &execEngine{tool: sphinxArgs[0], argv: sphinxArgs[1:]}
 	case r.HasStack("hugo"):
 		src := detect.FindHugoSource(r.root)
 		argv := []string{"--minify"}

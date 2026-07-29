@@ -77,8 +77,17 @@ func TestInstallHintInRepoUVProject(t *testing.T) {
 	if got := installHintInRepo(r, "mkdocs"); !strings.Contains(got, "dev dependencies") || !strings.Contains(got, "stratt sync") {
 		t.Errorf("uv-repo mkdocs hint should point at dev deps + stratt sync; got %q", got)
 	}
+	// Sphinx especially: `uv tool install sphinx` is broken for autodoc
+	// projects — a global sphinx can't import the project package or its
+	// theme/extensions.  The hint must point at a project dependency.
+	if got := installHintInRepo(r, "sphinx-build"); !strings.Contains(got, "add sphinx to the project's dev dependencies") {
+		t.Errorf("uv-repo sphinx-build hint should point at dev deps; got %q", got)
+	}
+	if got := installHintInRepo(r, "sphinx-autobuild"); !strings.Contains(got, "add sphinx-autobuild to the project's dev dependencies") {
+		t.Errorf("uv-repo sphinx-autobuild hint should point at dev deps; got %q", got)
+	}
 	if got := installHintInRepo(r, "hugo"); got != InstallHint("hugo") {
-		t.Errorf("non-mkdocs tools should keep the generic hint; got %q", got)
+		t.Errorf("non-docs tools should keep the generic hint; got %q", got)
 	}
 
 	// Outside a uv repo the generic (corrected) mkdocs hint stands.

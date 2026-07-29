@@ -1,19 +1,24 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/stratt-sh/stratt/internal/detect"
+	"github.com/stratt-sh/stratt/internal/capability"
+	"github.com/stratt-sh/stratt/internal/runner"
 )
 
-// newCleanCmd implements `stratt clean`: walks the detected stacks
-// and removes their conventional artifact directories.
+// newCleanCmd implements `stratt clean`.  The removal work lives in
+// capability's clean engine so it participates in the task registry like
+// every other built-in ([tasks.clean] overrides/augments apply, and the
+// `reset` composite can chain it); this command is the flag surface.
 func newCleanCmd() *cobra.Command {
-	return &cobra.Command{
+	var docker bool
+	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Remove build / cache artifacts for the detected stacks",
 		Long: `Remove conventional build and cache artifacts for every detected stack.
@@ -33,146 +38,75 @@ Per stack:
   sphinx             → docs/_build/, docs/_autosummary/
   hugo               → <hugo source>/public/
 
-Does not touch Docker images by default (requires --docker explicitly).
-After cleaning a python+uv repo, run ` + "`stratt setup`" + ` to rebuild .venv.`,
+Does not touch Docker images by default; pass --docker to also prune
+dangling images (repos with a docker stack).
+After cleaning a python+uv repo, run ` + "`stratt setup`" + ` to rebuild .venv —
+or use ` + "`stratt reset`" + `, which runs clean + setup in one step.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			out := cmd.OutOrStdout()
-			report := detect.Scan(cwd)
-
-			targets := []string{filepath.Join(cwd, ".stratt", "cache")}
-			needPycache := false
-			needEggInfo := false
-			needUVCacheClean := false
-			for _, s := range report.Stacks {
-				switch s.Name {
-				case "go":
-					targets = append(targets, filepath.Join(cwd, "bin"))
-				case "python+uv":
-					targets = append(targets,
-						filepath.Join(cwd, ".venv"),
-						filepath.Join(cwd, "build"),
-						filepath.Join(cwd, "dist"),
-						filepath.Join(cwd, ".pytest_cache"),
-						filepath.Join(cwd, ".ruff_cache"),
-						filepath.Join(cwd, ".coverage"),
-						filepath.Join(cwd, "htmlcov"),
-					)
-					needPycache = true
-					needEggInfo = true
-					needUVCacheClean = true
-				case "mkdocs":
-					targets = append(targets, filepath.Join(cwd, "site"))
-				case "sphinx":
-					targets = append(targets,
-						filepath.Join(cwd, "docs", "_build"),
-						filepath.Join(cwd, "docs", "_autosummary"),
-					)
-				case "hugo":
-					src := detect.FindHugoSource(cwd)
-					if src != "" {
-						targets = append(targets, filepath.Join(cwd, src, "public"))
-					}
-				case "ansible-collection":
-					targets = append(targets,
-						filepath.Join(cwd, "dist"),
-						filepath.Join(cwd, ".ansible"),
-						filepath.Join(cwd, "collections"),
-					)
-				case "ansible-role":
-					targets = append(targets, filepath.Join(cwd, ".ansible"))
-				case "ansible-playbook":
-					targets = append(targets,
-						filepath.Join(cwd, ".ansible"),
-						filepath.Join(cwd, "collections"),
-					)
-				}
-			}
-			for _, p := range targets {
-				if err := os.RemoveAll(p); err != nil {
-					return fmt.Errorf("rm -rf %s: %w", p, err)
-				}
-				fmt.Fprintf(out, "removed %s\n", relTo(cwd, p))
-			}
-
-			if needPycache {
-				if err := removePycache(cwd, out); err != nil {
-					return err
-				}
-			}
-			if needEggInfo {
-				if err := removeEggInfo(cwd, out); err != nil {
-					return err
-				}
-			}
-			if needUVCacheClean {
-				runUVCacheClean(cmd, out)
-			}
-			return nil
+			return runRegistryTaskWithClean(cmd, "clean", docker)
 		},
 	}
+	cmd.Flags().BoolVar(&docker, "docker", false, "also prune dangling docker images (repos with a docker stack)")
+	return cmd
 }
 
-// runUVCacheClean drops the global uv download cache.  Best effort:
-// missing uv or a non-zero exit logs and continues — clean shouldn't
-// fail because of cache cleanup.
-func runUVCacheClean(cmd *cobra.Command, out interface{ Write([]byte) (int, error) }) {
-	if _, err := exec.LookPath("uv"); err != nil {
-		fmt.Fprintln(out, "skipped uv cache clean (uv not on PATH)")
-		return
+// runRegistryTaskWithClean is the shared body of `stratt clean` and
+// `stratt reset`: load the registry, plumb the per-invocation options
+// (--docker, the command's output writer) into the built-in clean engine,
+// and run the named task — so [tasks.clean]/[tasks.reset] overrides,
+// augments, and disables all apply exactly as for other built-ins.
+func runRegistryTaskWithClean(cmd *cobra.Command, task string, docker bool) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
 	}
-	c := exec.CommandContext(cmd.Context(), "uv", "cache", "clean")
-	c.Stdout = out
-	c.Stderr = out
-	if err := c.Run(); err != nil {
-		fmt.Fprintf(out, "uv cache clean: %v (continuing)\n", err)
-		return
+	reg, resolver, err := loadRegistry(cwd)
+	if err != nil {
+		return err
 	}
-	fmt.Fprintln(out, "cleaned uv cache")
-}
 
-// removeEggInfo walks cwd and removes *.egg-info directories.
-func removeEggInfo(root string, log interface{ Write([]byte) (int, error) }) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() {
-			switch info.Name() {
-			case ".git", ".venv", "node_modules":
-				return filepath.SkipDir
-			}
-			if filepath.Ext(info.Name()) == ".egg-info" {
-				if rmErr := os.RemoveAll(path); rmErr == nil {
-					fmt.Fprintf(log, "removed %s\n", relTo(root, path))
-				}
-				return filepath.SkipDir
-			}
-		}
-		return nil
+	if !configureCleanEngine(reg, cmd.OutOrStdout(), docker) && docker {
+		fmt.Fprintln(cmd.ErrOrStderr(),
+			"note: --docker has no effect — project config replaces or disables the built-in clean")
+	}
+
+	run := runner.New(runner.Options{
+		Stdout:   cmd.OutOrStdout(),
+		Stderr:   cmd.ErrOrStderr(),
+		CWD:      cwd,
+		Registry: reg,
+		Style:    styleFrom(cmd.Context()),
 	})
+	if err := run.RunTask(cmd.Context(), task); err != nil {
+		if errors.Is(err, runner.ErrUnknownTask) || errors.Is(err, runner.ErrNoEngine) {
+			return noEngineError(task, resolver)
+		}
+		return err
+	}
+	return nil
 }
 
-// removePycache walks cwd and removes every __pycache__ directory.
-func removePycache(root string, log interface{ Write([]byte) (int, error) }) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() && info.Name() == "__pycache__" {
-			if rmErr := os.RemoveAll(path); rmErr == nil {
-				fmt.Fprintf(log, "removed %s\n", relTo(root, path))
-			}
-			return filepath.SkipDir
-		}
-		return nil
-	})
+// configureCleanEngine plumbs the invocation's output writer and --docker
+// toggle into the registry-held clean engine.  Returns false when the
+// built-in engine isn't in play (user override via [tasks.clean], or the
+// task was disabled) so the caller can surface an ignored --docker.
+func configureCleanEngine(reg *runner.Registry, out io.Writer, docker bool) bool {
+	t := reg.Lookup("clean")
+	if t == nil || t.Engine == nil {
+		return false
+	}
+	ce, ok := t.Engine.(capability.CleanEngine)
+	if !ok {
+		return false
+	}
+	ce.SetOutput(out)
+	ce.SetDockerPrune(docker)
+	return true
 }
 
+// relTo renders path relative to base for display, falling back to the
+// absolute path when no relative form exists.
 func relTo(base, path string) string {
 	if r, err := filepath.Rel(base, path); err == nil {
 		return r

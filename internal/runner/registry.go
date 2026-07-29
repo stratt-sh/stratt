@@ -297,6 +297,8 @@ func defaultBuiltinDescription(name string) string {
 		return "Upgrade all dependencies"
 	case "clean":
 		return "Remove build / cache artifacts"
+	case "reset":
+		return "Wipe and rebuild the dev environment (clean + setup)"
 	case "release":
 		return "Bump version, commit, tag, and push"
 	case "deploy":

@@ -558,3 +558,71 @@ func TestRunTaskExecutionOrder(t *testing.T) {
 type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+// TestBuildRegistrySynthesizesResetComposite — reset chains clean then
+// setup, mirroring how `all` is synthesized from its composite engine.
+func TestBuildRegistrySynthesizesResetComposite(t *testing.T) {
+	dir := goRepo(t)
+	res := capability.New(dir)
+	reg, err := BuildRegistry(res, &config.Project{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reset := reg.Lookup("reset")
+	if reset == nil {
+		t.Fatal("expected `reset` to be synthesized")
+	}
+	want := []string{"clean", "setup"}
+	if len(reset.Tasks) != len(want) {
+		t.Fatalf("tasks: got %v, want %v", reset.Tasks, want)
+	}
+	for i := range want {
+		if reset.Tasks[i] != want[i] {
+			t.Errorf("tasks[%d]: got %q, want %q", i, reset.Tasks[i], want[i])
+		}
+	}
+}
+
+// TestBuildRegistryResetShrinksWhenCleanDisabled — disabling a member
+// prunes it from the reset composite, same as `all` (R2.6.10).
+func TestBuildRegistryResetShrinksWhenCleanDisabled(t *testing.T) {
+	dir := goRepo(t)
+	res := capability.New(dir)
+	proj := &config.Project{
+		Tasks: map[string]config.Task{
+			"clean": {Enabled: false},
+		},
+	}
+	reg, err := BuildRegistry(res, proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reset := reg.Lookup("reset")
+	if reset == nil {
+		t.Fatal("expected `reset` to remain")
+	}
+	for _, e := range reset.Tasks {
+		if e == "clean" {
+			t.Errorf("disabled `clean` should have been pruned from `reset`; got %v", reset.Tasks)
+		}
+	}
+}
+
+// TestBuildRegistryResetDisabled — `[tasks.reset] enabled = false`
+// removes the composite entirely, like any other built-in.
+func TestBuildRegistryResetDisabled(t *testing.T) {
+	dir := goRepo(t)
+	res := capability.New(dir)
+	proj := &config.Project{
+		Tasks: map[string]config.Task{
+			"reset": {Enabled: false},
+		},
+	}
+	reg, err := BuildRegistry(res, proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Lookup("reset") != nil {
+		t.Error("disabled `reset` should not be in the registry")
+	}
+}

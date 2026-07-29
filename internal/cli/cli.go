@@ -257,6 +257,7 @@ command map for this repo, or ` + "`stratt doctor`" + ` for a full health report
 	root.AddCommand(newReleaseCmd())
 	root.AddCommand(newDeployCmd())
 	root.AddCommand(newCleanCmd())
+	root.AddCommand(newResetCmd())
 	root.AddCommand(newDocsCmd())
 	root.AddCommand(newSelfCmd(b))
 	root.AddCommand(newConfigCmd(b))

@@ -21,6 +21,7 @@ THE VERBS
   release   patch | minor | major — bump version, commit, tag, push
   deploy    kustomize image bump for Kubernetes
   setup     first-time project setup
+  reset     clean + setup: wipe and rebuild the dev environment
   sync      install dependencies from the lockfile (alias: install)
   lock      update the lockfile from the manifest
   upgrade   upgrade dependencies to latest compatible versions

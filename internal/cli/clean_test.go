@@ -104,3 +104,47 @@ func TestCleanNoStacksStillRemovesStrattCache(t *testing.T) {
 		t.Errorf(".stratt/cache should be removed regardless of stacks: %v", err)
 	}
 }
+
+// TestCleanDockerWithoutDockerStack — passing --docker in a repo with no
+// docker stack is inapplicable, not an error; clean says so and proceeds.
+func TestCleanDockerWithoutDockerStack(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	withCwd(t, dir)
+
+	cmd := newCleanCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--docker"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "skipped docker image prune") {
+		t.Errorf("expected a skip notice for --docker without a docker stack; got %q", out.String())
+	}
+}
+
+// TestCleanHonorsTaskOverride — [tasks.clean] with a run body replaces
+// the built-in clean, now that clean dispatches through the registry.
+func TestCleanHonorsTaskOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "stratt.toml"), []byte(`
+[tasks.clean]
+run = "echo CUSTOM-CLEAN"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, dir)
+
+	cmd := newCleanCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "CUSTOM-CLEAN") {
+		t.Errorf("override should replace the built-in clean; got %q", out.String())
+	}
+}

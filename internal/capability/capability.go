@@ -247,10 +247,10 @@ func (r *Resolver) HasStack(name string) bool {
 // Adding a command here without adding it to ResolveAll is a programming
 // error; the resolver will return an "unknown command" Resolution.
 //
-// `style` and `all` are composite built-ins — their resolveXxx returns
-// a compositeEngine whose Run() is intentionally inert; execution flows
-// through the task Registry, which expands the composition into a Task
-// with a populated Tasks field.
+// `style`, `reset`, and `all` are composite built-ins — their resolveXxx
+// returns a compositeEngine whose Run() is intentionally inert; execution
+// flows through the task Registry, which expands the composition into a
+// Task with a populated Tasks field.
 var UniversalCommands = []string{
 	"build",
 	"test",
@@ -262,6 +262,7 @@ var UniversalCommands = []string{
 	"lock",
 	"upgrade",
 	"clean",
+	"reset",
 	"release",
 	"deploy",
 	"docs",
@@ -291,6 +292,8 @@ func (r *Resolver) Resolve(command string) Resolution {
 		res.Engine = r.resolveUpgrade()
 	case "clean":
 		res.Engine = r.resolveClean()
+	case "reset":
+		res.Engine = r.resolveReset()
 	case "release":
 		res.Engine = r.resolveRelease()
 	case "deploy":

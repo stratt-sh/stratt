@@ -75,12 +75,22 @@ func InstallHint(tool string) string {
 }
 
 // installHintInRepo returns the install suggestion for tool, adjusted
-// for repo context.  In a python+uv repo a missing mkdocs is better
+// for repo context.  In a python+uv repo a missing docs tool is better
 // fixed by making it a project dependency (docs then resolves through
-// `uv run`, no global install at all) than by a PATH install.
+// `uv run`, no global install at all) than by a PATH install.  For
+// sphinx a global install isn't just worse, it's broken: autodoc must
+// import the project package and its theme/extensions, which only the
+// project venv provides.
 func installHintInRepo(r *capability.Resolver, tool string) string {
-	if tool == "mkdocs" && r != nil && r.HasStack("python+uv") {
-		return "add mkdocs to the project's dev dependencies, then `stratt sync`"
+	if r != nil && r.HasStack("python+uv") {
+		switch tool {
+		case "mkdocs":
+			return "add mkdocs to the project's dev dependencies, then `stratt sync`"
+		case "sphinx-build":
+			return "add sphinx to the project's dev dependencies, then `stratt sync`"
+		case "sphinx-autobuild":
+			return "add sphinx-autobuild to the project's dev dependencies, then `stratt sync`"
+		}
 	}
 	return InstallHint(tool)
 }
