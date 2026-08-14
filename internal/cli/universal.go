@@ -105,6 +105,17 @@ func newUniversalCmd(spec universalSpec) *cobra.Command {
 				}
 				return err
 			}
+
+			// `stratt all` keeps the AGENTS.md stratt block current the same
+			// way it keeps formatting current: if a block is present and its
+			// boilerplate has since been revised, refresh it in place.  A
+			// failure here is non-fatal — a doc refresh must not fail the
+			// verification suite.
+			if spec.name == "all" {
+				if err := syncAgentsBlockIfStale(cwd, cmd.OutOrStdout(), styleFrom(cmd.Context())); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not refresh the AGENTS.md stratt block: %v\n", err)
+				}
+			}
 			return nil
 		},
 	}

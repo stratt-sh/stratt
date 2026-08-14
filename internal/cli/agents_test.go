@@ -2,10 +2,18 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/stratt-sh/stratt/internal/ui"
 )
+
+// plainStyle is a color-free style for exercising helpers that print.
+func plainStyle() *ui.Style {
+	return ui.NewStyle(io.Discard, io.Discard, ui.ColorNever, ui.Normal)
+}
 
 // TestAgentsContextIncludesOrientationAndMap — `agents context` prints
 // the static orientation and the live resolved command map for the repo.
@@ -138,6 +146,117 @@ func TestUpsertManagedBlock(t *testing.T) {
 		twice, _ := upsertManagedBlock(once)
 		if once != twice {
 			t.Errorf("upsert should be idempotent;\nonce:\n%s\ntwice:\n%s", once, twice)
+		}
+	})
+}
+
+// TestSyncAgentsBlockIfStale covers the `stratt all` courtesy refresh:
+// it fixes a stale block, is quiet+no-op when the block is current, and
+// never creates a file or touches a repo that has no block.
+func TestSyncAgentsBlockIfStale(t *testing.T) {
+	// Ensure the helper's CI guard doesn't turn the mutating cases into
+	// no-ops when the suite itself happens to run under CI.
+	notCI := func(t *testing.T) {
+		t.Setenv("CI", "")
+		t.Setenv("GITHUB_ACTIONS", "")
+	}
+
+	t.Run("refreshes a stale block", func(t *testing.T) {
+		notCI(t)
+		dir := t.TempDir()
+		path := agentsFilePath(dir)
+		stale := "# Guide\n\n" + agentsBeginMarker + "\nSTALE BODY\n" + agentsEndMarker + "\n"
+		if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out bytes.Buffer
+		if err := syncAgentsBlockIfStale(dir, &out, plainStyle()); err != nil {
+			t.Fatalf("sync errored: %v", err)
+		}
+		got, _ := os.ReadFile(path)
+		if strings.Contains(string(got), "STALE BODY") {
+			t.Errorf("stale block should have been rewritten:\n%s", got)
+		}
+		if !strings.Contains(string(got), "# Guide") {
+			t.Errorf("surrounding content must be preserved:\n%s", got)
+		}
+		if !strings.Contains(out.String(), "refreshed") {
+			t.Errorf("expected a refresh notice; got: %q", out.String())
+		}
+	})
+
+	t.Run("skips in CI, leaving a stale block untouched", func(t *testing.T) {
+		t.Setenv("CI", "true")
+		dir := t.TempDir()
+		path := agentsFilePath(dir)
+		stale := "# Guide\n\n" + agentsBeginMarker + "\nSTALE BODY\n" + agentsEndMarker + "\n"
+		if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out bytes.Buffer
+		if err := syncAgentsBlockIfStale(dir, &out, plainStyle()); err != nil {
+			t.Fatalf("sync errored: %v", err)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != stale {
+			t.Errorf("CI run must not rewrite the block:\n%s", after)
+		}
+		if out.String() != "" {
+			t.Errorf("should be silent in CI; got: %q", out.String())
+		}
+	})
+
+	t.Run("no-op and silent when current", func(t *testing.T) {
+		notCI(t)
+		dir := t.TempDir()
+		path := agentsFilePath(dir)
+		current, _ := upsertManagedBlock("# Guide\n")
+		if err := os.WriteFile(path, []byte(current), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out bytes.Buffer
+		if err := syncAgentsBlockIfStale(dir, &out, plainStyle()); err != nil {
+			t.Fatalf("sync errored: %v", err)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != current {
+			t.Errorf("current block should be untouched:\n%s", after)
+		}
+		if out.String() != "" {
+			t.Errorf("should be silent when up to date; got: %q", out.String())
+		}
+	})
+
+	t.Run("does not create a missing file", func(t *testing.T) {
+		notCI(t)
+		dir := t.TempDir()
+		var out bytes.Buffer
+		if err := syncAgentsBlockIfStale(dir, &out, plainStyle()); err != nil {
+			t.Fatalf("sync errored: %v", err)
+		}
+		if _, err := os.Stat(agentsFilePath(dir)); !os.IsNotExist(err) {
+			t.Errorf("AGENTS.md must not be created when absent (stat err: %v)", err)
+		}
+	})
+
+	t.Run("ignores a file with no managed block", func(t *testing.T) {
+		notCI(t)
+		dir := t.TempDir()
+		path := agentsFilePath(dir)
+		plain := "# Hand-written guide, no stratt block\n"
+		if err := os.WriteFile(path, []byte(plain), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := syncAgentsBlockIfStale(dir, &out, plainStyle()); err != nil {
+			t.Fatalf("sync errored: %v", err)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != plain {
+			t.Errorf("a file without a block must be left untouched:\n%s", after)
 		}
 	})
 }

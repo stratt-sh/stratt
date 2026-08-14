@@ -36,6 +36,12 @@ DRIVING IT NON-INTERACTIVELY (for agents)
   --no-commit  (release) write the bump only; no commit/tag/push
   Exit codes:  0 ok · 130 interrupted · non-zero on any other error
 
+IN CI
+  Don't hand-write `uv run …` / `pytest` / `ruff …` steps — they drift from
+  what runs locally. Install stratt (GitHub Actions: `stratt-sh/setup-stratt@v0`)
+  and run the same verbs, e.g. `stratt all`, so CI runs the identical resolved
+  commands as your machine. Details: https://stratt.sh/docs/ci
+
 SEE WHAT RUNS HERE
   `stratt doctor` shows the resolved backend for each verb in this repo,
   plus detected stacks and missing tools. The resolved map for the current

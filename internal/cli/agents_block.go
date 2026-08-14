@@ -2,10 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/stratt-sh/stratt/internal/ui"
+	"github.com/stratt-sh/stratt/internal/update"
 )
 
 // The managed block is a stable *pointer*, not a copy of the command
@@ -30,6 +33,11 @@ const (
 		"Verbs: `build` · `test` · `lint` · `format` · `style` · `all` (full\n" +
 		"verification suite) · `run <task>` (custom tasks) · `release patch|minor|major`.\n" +
 		"Non-interactive: `--ci` (no prompts, fail loudly) and `-y` (auto-confirm).\n" +
+		"\n" +
+		"CI: don't hand-write `uv run …`/`go test …`/`ruff …` steps — they drift\n" +
+		"from what runs locally. Install stratt (`stratt-sh/setup-stratt@v0`) and\n" +
+		"call the same verbs, e.g. `stratt all`, so CI runs the identical resolved\n" +
+		"commands. See https://stratt.sh/docs/ci.\n" +
 		"\n" +
 		"Before your first stratt command, run `stratt agents context` — it prints\n" +
 		"this repo's resolved command map and conventions. Docs: https://stratt.sh"
@@ -66,6 +74,44 @@ func upsertManagedBlock(content string) (updated string, existed bool) {
 		content += "\n"
 	}
 	return content + "\n" + block + "\n", false
+}
+
+// syncAgentsBlockIfStale refreshes the managed stratt block in AGENTS.md
+// when one is present but out of date.  It is a courtesy step of
+// `stratt all`: repos that already opted into the block get their pointer
+// kept current automatically, the same way `all` keeps formatting current.
+// It never creates AGENTS.md and never touches a repo without a block, and
+// it stays silent unless it actually rewrites something.
+//
+// It is a no-op in CI ($CI / $GITHUB_ACTIONS): CI must not mutate tracked
+// files as a side effect, and a stale block there is a signal to fix
+// locally — not something CI should silently rewrite (which would also
+// defeat a `git diff --exit-code` gate).
+func syncAgentsBlockIfStale(cwd string, out io.Writer, st *ui.Style) error {
+	if update.IsCI() {
+		return nil
+	}
+	path := agentsFilePath(cwd)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	content := string(data)
+	if !hasManagedBlock(content) {
+		return nil
+	}
+	updated, _ := upsertManagedBlock(content)
+	if updated == content {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s agents: refreshed the stratt block in AGENTS.md (was out of date)\n", st.Green("✓"))
+	return nil
 }
 
 // newAgentsInitCmd adds the stratt pointer block to AGENTS.md, creating
