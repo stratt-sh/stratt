@@ -2,10 +2,12 @@ package capability
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExecEngineNameDefault(t *testing.T) {
@@ -141,28 +143,99 @@ func TestFanOutEngineRunsInSubprojectDirs(t *testing.T) {
 	}
 }
 
-// TestFanOutEngineFailFast — a failing subproject stops the run and the
-// error names the command and the subproject directory.
-func TestFanOutEngineFailFast(t *testing.T) {
-	good := &fakeEngine{name: "ok"}
-	bad := &execEngine{tool: "sh", argv: []string{"-c", "exit 3"}}
-	after := &fakeEngine{name: "after"}
+type channelEngine struct {
+	name     string
+	started  chan<- string
+	release  <-chan struct{}
+	finished chan<- error
+	err      error
+}
+
+func (e *channelEngine) Name() string         { return e.name }
+func (e *channelEngine) Status() EngineStatus { return StatusReady }
+func (e *channelEngine) Run(ctx context.Context, _ []string) error {
+	e.started <- e.name
+	select {
+	case <-e.release:
+		if e.finished != nil {
+			e.finished <- e.err
+		}
+		return e.err
+	case <-ctx.Done():
+		if e.finished != nil {
+			e.finished <- ctx.Err()
+		}
+		return ctx.Err()
+	}
+}
+
+func TestFanOutEngineRunsSubprojectsConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
 	ws := &fanOutEngine{
 		command: "test",
 		subprojects: []subprojectStep{
-			{dir: "backend", engine: good},
-			{dir: "frontend", engine: bad},
-			{dir: "docs", engine: after},
+			{dir: "backend", engine: &channelEngine{name: "backend", started: started, release: release}},
+			{dir: "frontend", engine: &channelEngine{name: "frontend", started: started, release: release}},
 		},
 	}
-	err := ws.Run(context.Background(), nil)
-	if err == nil {
-		t.Fatal("expected failure")
+	done := make(chan error, 1)
+	go func() { done <- ws.Run(context.Background(), nil) }()
+
+	seen := map[string]bool{}
+	for range 2 {
+		select {
+		case name := <-started:
+			seen[name] = true
+		case <-time.After(time.Second):
+			t.Fatal("subprojects did not start concurrently")
+		}
 	}
-	if !strings.Contains(err.Error(), "test in frontend") {
-		t.Errorf("error should name the command and subproject: %q", err.Error())
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
 	}
-	if after.calls != 0 {
-		t.Error("subprojects after the failure should not run (fail-fast)")
+	if !seen["backend"] || !seen["frontend"] {
+		t.Fatalf("started subprojects = %v", seen)
+	}
+}
+
+func TestFanOutEngineCancelsSiblingsOnFailure(t *testing.T) {
+	started := make(chan string, 2)
+	failRelease := make(chan struct{})
+	blockedRelease := make(chan struct{})
+	finished := make(chan error, 2)
+	wantErr := errors.New("boom")
+	ws := &fanOutEngine{
+		command: "test",
+		subprojects: []subprojectStep{
+			{dir: "backend", engine: &channelEngine{name: "backend", started: started, release: failRelease, finished: finished, err: wantErr}},
+			{dir: "frontend", engine: &channelEngine{name: "frontend", started: started, release: blockedRelease, finished: finished}},
+		},
+	}
+	done := make(chan error, 1)
+	go func() { done <- ws.Run(context.Background(), nil) }()
+
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("subprojects did not start")
+		}
+	}
+	close(failRelease)
+
+	err := <-done
+	if err == nil || !strings.Contains(err.Error(), "test in backend: boom") {
+		t.Fatalf("error should name the failed command and subproject: %v", err)
+	}
+	var sawFailure, sawCancellation bool
+	for range 2 {
+		result := <-finished
+		sawFailure = sawFailure || errors.Is(result, wantErr)
+		sawCancellation = sawCancellation || errors.Is(result, context.Canceled)
+	}
+	if !sawFailure || !sawCancellation {
+		t.Fatalf("finished results did not include failure and cancellation")
 	}
 }

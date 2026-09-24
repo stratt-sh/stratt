@@ -8,8 +8,8 @@
 //     referenced tasks.  Used by `stratt run` and by any universal
 //     subcommand that resolved via a Registry-aware path.
 //
-// Per R2.6.5 everything is serial in declared order; there is no
-// parallel execution model.
+// Task graphs are serial in declared order. Individual engines may parallelize
+// work that is known to be independent, such as sibling monorepo subprojects.
 package runner
 
 import (
@@ -128,8 +128,8 @@ var ErrUnknownTask = errors.New("unknown task")
 // Runner was constructed with a non-nil Registry.
 //
 // Recursive invocations share the same context and runner; concurrent
-// invocations of RunTask are not supported (and per R2.6.5 unnecessary
-// since execution is serial).
+// invocations of RunTask are not supported because task-graph execution is
+// serial. Engines may manage their own internal concurrency.
 func (r *Runner) RunTask(ctx context.Context, name string) error {
 	if r.opts.Registry == nil {
 		return errors.New("RunTask called without a Registry; configure Options.Registry")

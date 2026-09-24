@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // execEngine is the standard Engine implementation: a single external
@@ -215,9 +216,10 @@ type subprojectStep struct {
 
 // fanOutEngine fans a single universal command out across the stacks
 // detected in a monorepo's subproject subdirectories — e.g. `stratt test`
-// running pytest in backend/ and `npm test` in frontend/.  Subprojects run in
-// declared order and execution stops on the first failure, matching
-// stratt's serial, fail-fast model (R2.6.5).
+// running pytest in backend/ and `npm test` in frontend/.  Subprojects are
+// independent workspaces, so they run concurrently.  The first failure cancels
+// the shared context so still-running siblings stop promptly; Run waits for all
+// of them to exit before returning so no child process is left behind.
 //
 // It is only constructed when a monorepo actually has subprojects; a
 // single-stack repo resolves to its bare engine exactly as before, so
@@ -252,12 +254,46 @@ func (e *fanOutEngine) Status() EngineStatus {
 }
 
 func (e *fanOutEngine) Run(ctx context.Context, args []string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type result struct {
+		err     error
+		primary bool
+	}
+	results := make(chan result, len(e.subprojects))
+
+	var wg sync.WaitGroup
+	var cancelOnce sync.Once
 	for _, m := range e.subprojects {
-		if err := m.engine.Run(ctx, args); err != nil {
-			return fmt.Errorf("%s in %s: %w", e.command, m.dir, err)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := m.engine.Run(ctx, args)
+			primary := false
+			if err != nil {
+				cancelOnce.Do(func() {
+					primary = true
+					cancel()
+				})
+				err = fmt.Errorf("%s in %s: %w", e.command, m.dir, err)
+			}
+			results <- result{err: err, primary: primary}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	// Return the failure that triggered cancellation, not a sibling's resulting
+	// "context canceled" / "signal: killed" error.
+	var primaryErr error
+	for res := range results {
+		if res.primary {
+			primaryErr = res.err
 		}
 	}
-	return nil
+	return primaryErr
 }
 
 // Tools aggregates every subproject's missing-tool surface so doctor lists
