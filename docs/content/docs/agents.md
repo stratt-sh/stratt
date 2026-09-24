@@ -18,6 +18,17 @@ Point an agent at this once and it has the resolved commands, the relevant flags
 
 If you've configured a [workspace](../workspace/) root, `agents context` ends with a short **workspace** section: it notes that the repo lives in a stratt-managed workspace, gives the layout, and points the agent at `stratt workspace list` to discover sibling repos. The section is omitted entirely when no `[workspace]` is configured — there's nothing to describe and no tree to list.
 
+## agents skill
+
+`stratt agents skill` prints a portable `SKILL.md` — the format Claude Code, Hermes, and similar agent hosts use to load reusable instructions. It teaches an agent *when* to reach for stratt (any repo with a `stratt.toml` or a stratt block in `AGENTS.md`) and to run `stratt agents context` for the specifics. Pipe it to wherever your agent loads skills:
+
+```sh
+mkdir -p ~/.claude/skills/stratt
+stratt agents skill > ~/.claude/skills/stratt/SKILL.md
+```
+
+Because the skill ships inside the binary, it's always in step with the version of stratt you're running — and because it points at `agents context` for the live command map instead of copying it, it never goes stale.
+
 ## agents init and sync
 
 `stratt agents init` adds a short stratt block to the repo's `AGENTS.md`, telling any agent that reads it that stratt is in use and to run `stratt agents context` to learn the commands.

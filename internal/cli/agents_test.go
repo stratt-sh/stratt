@@ -102,6 +102,33 @@ func TestAgentsContextEmptyRepo(t *testing.T) {
 	}
 }
 
+// TestAgentsSkillPrintsSkillDoc — `agents skill` prints a valid SKILL.md:
+// frontmatter with a name, and the core "prefer stratt's verbs" guidance
+// that points agents at `stratt agents context`.
+func TestAgentsSkillPrintsSkillDoc(t *testing.T) {
+	cmd := newAgentsSkillCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	body := out.String()
+	if !strings.HasPrefix(body, "---\n") {
+		t.Errorf("skill should start with YAML frontmatter; got:\n%s", body)
+	}
+	for _, expected := range []string{
+		"name: stratt",
+		"stratt agents context",              // points agents at the live map
+		"stratt's verbs over the underlying", // the one rule
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("agents skill missing %q\n--- full output ---\n%s", expected, body)
+		}
+	}
+}
+
 func TestUpsertManagedBlock(t *testing.T) {
 	t.Run("append to existing content", func(t *testing.T) {
 		in := "# Project\n\nGuidance.\n"

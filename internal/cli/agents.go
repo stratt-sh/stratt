@@ -23,6 +23,16 @@ import (
 //go:embed agents_context.txt
 var agentsOrientation string
 
+// agentsSkill is a portable SKILL.md that teaches a coding agent (Claude
+// Code, Hermes, …) when to reach for stratt and how to drive it.  Printed
+// verbatim by `stratt agents skill` so it can be piped to wherever a given
+// agent loads skills.  Deliberately thin: it points at `stratt agents
+// context` for the live command map rather than copying it, so it never
+// drifts.  Embedded as a file so it reads as Markdown, not a Go literal.
+//
+//go:embed agents_skill.md
+var agentsSkill string
+
 // newAgentsCmd is the `stratt agents` namespace: everything an AI agent
 // needs to discover and drive stratt.  Bare `stratt agents` lists the
 // subcommands (Cobra's default for a parent with no Run).
@@ -33,15 +43,34 @@ func newAgentsCmd(b BuildInfo) *cobra.Command {
 		Long: `Commands for making stratt legible to AI coding agents.
 
   stratt agents context   print orientation + the resolved command map for this repo
+  stratt agents skill     print a portable SKILL.md for AI coding agents
   stratt agents init      add a stratt pointer block to AGENTS.md
   stratt agents sync      refresh the stratt block in AGENTS.md`,
 	}
 	cmd.AddCommand(
 		newAgentsContextCmd(b),
+		newAgentsSkillCmd(),
 		newAgentsInitCmd(),
 		newAgentsSyncCmd(),
 	)
 	return cmd
+}
+
+// newAgentsSkillCmd prints the stratt agent skill to stdout: a portable
+// SKILL.md an agent host can load.  It writes to stdout (not a file) so it
+// composes with whatever install location a given agent uses, e.g.
+//
+//	stratt agents skill > ~/.claude/skills/stratt/SKILL.md
+func newAgentsSkillCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "skill",
+		Short: "Print a portable SKILL.md that teaches an AI agent to use stratt",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			fmt.Fprint(cmd.OutOrStdout(), agentsSkill)
+			return nil
+		},
+	}
 }
 
 // newAgentsContextCmd prints the one-stop agent dump: static orientation
